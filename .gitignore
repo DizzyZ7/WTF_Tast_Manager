@@ -1,0 +1,17 @@
+.turbo/
+.corepack-shims/
+.next/
+coverage/
+dist/
+node_modules/
+pnpm-lock.yaml.tmp
+*.log
+.env
+.env.*
+!.env.example
+
+# Локальные файлы IDE и Python-окружение, оставшиеся вне Node-монорепозитория.
+.idea/
+.venv/
+__pycache__/
+*.pyc

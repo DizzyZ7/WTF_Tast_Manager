@@ -1,0 +1,481 @@
+openapi: 3.1.0
+info:
+  title: WTF API
+  version: 0.1.0
+  summary: REST API для Work Task Flow.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Сервис доступен.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /v1/auth/token:
+    post:
+      summary: Зарегистрировать/войти по email из allow-list и выпустить JWT пару.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "200":
+          description: Access и refresh токены.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+  /v1/auth/refresh:
+    post:
+      summary: Обновить access token по refresh token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Новая JWT пара.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+  /v1/oauth/{provider}/authorize:
+    get:
+      summary: Получить URL авторизации OAuth2.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            enum: [google, github]
+      responses:
+        "200":
+          description: URL внешнего провайдера.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthAuthorizeResponse"
+  /v1/workspaces:
+    post:
+      summary: Создать workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+      responses:
+        "201":
+          description: Workspace создан.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+  /v1/workspaces/by-slug/{slug}:
+    get:
+      summary: Найти workspace по slug.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+      responses:
+        "200":
+          description: Workspace найден.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+  /v1/workspaces/{workspaceId}/projects:
+    post:
+      summary: Создать project внутри workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project создан.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /v1/workspaces/{workspaceId}/members:
+    post:
+      summary: Добавить участника workspace по allow-listed email.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWorkspaceMemberRequest"
+      responses:
+        "201":
+          description: Участник добавлен.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+  /v1/workspaces/{workspaceId}/projects/by-key/{key}:
+    get:
+      summary: Найти project по ключу внутри workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Z][A-Z0-9]{1,9}$"
+      responses:
+        "200":
+          description: Project найден.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /v1/workspaces/{workspaceId}/projects/{projectId}/issues:
+    get:
+      summary: Получить issue проекта.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ProjectId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        "200":
+          description: Issue проекта.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueListResponse"
+    post:
+      summary: Создать issue.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIssueRequest"
+      responses:
+        "201":
+          description: Issue создана.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+  /v1/issues/{issueId}:
+    get:
+      summary: Получить issue.
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      responses:
+        "200":
+          description: Issue найдена.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+  /v1/issues/{issueId}/comments:
+    post:
+      summary: Добавить comment к issue.
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCommentRequest"
+      responses:
+        "201":
+          description: Comment добавлен.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+  /v1/issues/{issueId}/status:
+    patch:
+      summary: Перенести issue в другой статус.
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateIssueStatusRequest"
+      responses:
+        "200":
+          description: Issue перенесена; actor записан в activity log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IssueId:
+      name: issueId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          const: ok
+    TokenRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 32
+    TokenPair:
+      type: object
+      required: [user, accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        user:
+          type: object
+          required: [id, email]
+          properties:
+            id:
+              type: string
+              format: uuid
+            email:
+              type: string
+              format: email
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          const: Bearer
+        expiresIn:
+          type: integer
+    OAuthAuthorizeResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+    CreateWorkspaceRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        slug:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+    AddWorkspaceMemberRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          enum: [admin, member, viewer]
+          default: member
+    CreateProjectRequest:
+      type: object
+      required: [name, key]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        key:
+          type: string
+          pattern: "^[A-Z][A-Z0-9]{1,9}$"
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 3
+        description:
+          type: string
+        assigneeId:
+          type: string
+          format: uuid
+    AddCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+    UpdateIssueStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/IssueStatus"
+    IssueStatus:
+      enum: [backlog, todo, in_progress, in_review, done, canceled]
+    Workspace:
+      type: object
+      required: [id, name, slug, members, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        members:
+          type: array
+          items:
+            type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Project:
+      type: object
+      required: [id, workspaceId, key, name, status, leadUserId, sprints, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        leadUserId:
+          type: string
+        sprints:
+          type: array
+          items:
+            type: object
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+    Issue:
+      type: object
+      required:
+        [id, workspaceId, projectId, key, title, status, priority, reporterId, comments, activities]
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        projectId:
+          type: string
+        key:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/IssueStatus"
+        priority:
+          enum: [low, medium, high, urgent]
+        reporterId:
+          type: string
+          format: uuid
+        comments:
+          type: array
+          items:
+            type: object
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueActivity"
+    IssueActivity:
+      type: object
+      required: [id, actorId, verb, occurredAt, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+        verb:
+          enum: [created, status_changed, assigned, commented, subtask_added, relation_added]
+        occurredAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    IssueListResponse:
+      type: object
+      required: [issues]
+      properties:
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Issue"

@@ -1,0 +1,42 @@
+{
+  "name": "@wtf/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PostgreSQL persistence layer for WTF.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/migrations"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('coverage',{recursive:true,force:true})\"",
+    "dev": "tsc -b --watch",
+    "drizzle-kit": "drizzle-kit --config=drizzle.config.ts",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@wtf/core": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.21.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.20.0",
+    "@vitest/coverage-v8": "4.1.6",
+    "drizzle-kit": "0.31.10"
+  }
+}

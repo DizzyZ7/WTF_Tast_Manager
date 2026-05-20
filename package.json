@@ -1,0 +1,50 @@
+{
+  "name": "wtf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WTF (Work Task Flow) self-hosted collaborative project management platform.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "packageManager": "pnpm@10.23.0",
+  "engines": {
+    "node": ">=24.11.0",
+    "pnpm": ">=10.23.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "clean": "turbo run clean",
+    "dev": "turbo run dev --parallel",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @wtf/db drizzle-kit generate",
+    "prepare": "husky",
+    "lint-staged": "lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "21.0.1",
+    "@commitlint/config-conventional": "21.0.1",
+    "@eslint/js": "9.39.1",
+    "@types/node": "25.9.0",
+    "eslint": "9.39.1",
+    "husky": "9.1.7",
+    "lint-staged": "17.0.5",
+    "prettier": "3.8.3",
+    "turbo": "2.9.14",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.4",
+    "vitest": "4.1.6"
+  }
+}

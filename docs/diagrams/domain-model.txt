@@ -1,0 +1,33 @@
++-------------------+
+| Workspace         |
+| aggregate root    |
+|-------------------|
+| id, slug, name    |
+| members, roles    |
++---------+---------+
+          |
+          | owns
+          v
++-------------------+        +-------------------+
+| Project           |  has   | Sprint            |
+| aggregate root    +------->| entity            |
+|-------------------|        |-------------------|
+| key, name, status |        | goal, dates       |
++---------+---------+        +-------------------+
+          |
+          | contains
+          v
++-------------------+        +-------------------+
+| Issue             |  has   | Comment           |
+| aggregate root    +------->| entity            |
+|-------------------|        |-------------------|
+| title, status     |        | author, body      |
+| priority, assignee|        +-------------------+
+| subtasks          |
+| relations         |        +-------------------+
++---------+---------+  emits | Activity          |
+          +--------------->  | entity/event log  |
+                             |-------------------|
+                             | actor, verb, data |
+                             +-------------------+
+

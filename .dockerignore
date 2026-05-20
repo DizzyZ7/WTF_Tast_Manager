@@ -1,0 +1,12 @@
+.git
+.github
+.corepack-shims
+.idea
+.venv
+.next
+.turbo
+coverage
+dist
+node_modules
+*.log
+.env
