@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "../utils/cn.js";
 import { Badge, type BadgeTone } from "./badge.js";
 
 /**
@@ -13,6 +14,14 @@ export interface IssueRowProps {
   readonly status: string;
   /** Приоритет задачи. */
   readonly priority: "low" | "medium" | "high" | "urgent";
+  /** Отображаемое название приоритета. */
+  readonly priorityLabel?: string;
+  /** Выбрана ли строка в родительском списке. */
+  readonly isSelected?: boolean;
+  /** Дополнительные CSS-классы. */
+  readonly className?: string;
+  /** Обработчик выбора строки. */
+  readonly onClick?: () => void;
 }
 
 const priorityTone: Record<IssueRowProps["priority"], BadgeTone> = {
@@ -25,13 +34,38 @@ const priorityTone: Record<IssueRowProps["priority"], BadgeTone> = {
 /**
  * Строка issue для board/list views.
  */
-export function IssueRow({ issueKey, title, status, priority }: IssueRowProps): ReactNode {
-  return (
-    <div className="grid min-h-12 grid-cols-[88px_1fr_112px_88px] items-center gap-3 border-b border-zinc-200 px-3 text-sm">
+export function IssueRow({
+  className,
+  isSelected = false,
+  issueKey,
+  onClick,
+  priority,
+  priorityLabel,
+  status,
+  title,
+}: IssueRowProps): ReactNode {
+  const rowClassName = cn(
+    "grid min-h-12 grid-cols-[88px_1fr_112px_88px] items-center gap-3 border-b border-zinc-200 px-3 text-sm transition-colors",
+    onClick === undefined ? "" : "w-full text-left hover:bg-zinc-50",
+    isSelected ? "bg-blue-50/70" : "",
+    className,
+  );
+  const content = (
+    <>
       <span className="font-mono text-xs text-zinc-500">{issueKey}</span>
       <span className="truncate font-medium text-zinc-950">{title}</span>
       <Badge>{status}</Badge>
-      <Badge tone={priorityTone[priority]}>{priority}</Badge>
-    </div>
+      <Badge tone={priorityTone[priority]}>{priorityLabel ?? priority}</Badge>
+    </>
   );
+
+  if (onClick !== undefined) {
+    return (
+      <button className={rowClassName} onClick={onClick} type="button">
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={rowClassName}>{content}</div>;
 }

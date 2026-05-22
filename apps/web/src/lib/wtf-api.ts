@@ -48,6 +48,22 @@ const projectSchema = z.object({
   updatedAt: z.string(),
 });
 
+const issueCommentSchema = z.object({
+  id: z.string(),
+  authorId: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const issueActivitySchema = z.object({
+  id: z.string(),
+  actorId: z.string(),
+  verb: z.string(),
+  occurredAt: z.string(),
+  metadata: z.record(z.string(), z.unknown()),
+});
+
 const issueSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),
@@ -62,16 +78,8 @@ const issueSchema = z.object({
   sprintId: z.string().nullable(),
   subtasks: z.array(z.unknown()),
   relations: z.array(z.unknown()),
-  comments: z.array(z.unknown()),
-  activities: z.array(
-    z.object({
-      id: z.string(),
-      actorId: z.string(),
-      verb: z.string(),
-      occurredAt: z.string(),
-      metadata: z.record(z.string(), z.unknown()),
-    }),
-  ),
+  comments: z.array(issueCommentSchema),
+  activities: z.array(issueActivitySchema),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -160,6 +168,14 @@ export interface AddWorkspaceMemberInput {
 }
 
 /**
+ * Данные для добавления комментария к issue.
+ */
+export interface AddIssueCommentInput {
+  /** Текст комментария. */
+  readonly body: string;
+}
+
+/**
  * Данные для регистрации/входа.
  */
 export interface SignInInput {
@@ -196,11 +212,22 @@ const bootstrapProject = {
   key: "WTF",
 };
 
+const requestTimeoutMs = 15_000;
+
 /**
  * Возвращает базовый URL API из public runtime-конфигурации.
  */
 export function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (configuredUrl !== undefined && configuredUrl.length > 0) {
+    return configuredUrl;
+  }
+
+  if (typeof window !== "undefined" && window.location.hostname.length > 0) {
+    return `${window.location.protocol}//${formatHostForUrl(window.location.hostname)}:8080`;
+  }
+
+  return "http://localhost:8080";
 }
 
 /**
@@ -284,6 +311,22 @@ export class WtfApiClient {
   }
 
   /**
+   * Добавляет комментарий к issue и возвращает обновленный снимок issue.
+   */
+  public async addIssueComment(
+    context: WtfProjectContext,
+    issueId: string,
+    input: AddIssueCommentInput,
+  ): Promise<WtfIssue> {
+    return this.request(`/v1/issues/${issueId}/comments`, {
+      method: "POST",
+      token: context.accessToken,
+      schema: issueSchema,
+      body: { body: input.body },
+    });
+  }
+
+  /**
    * Переводит issue в новый статус. Исполнитель берется API из JWT.
    */
   public async moveIssue(
@@ -359,8 +402,11 @@ export class WtfApiClient {
   }
 
   private async request<T>(path: string, options: RequestOptions<T>): Promise<T> {
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), requestTimeoutMs);
     const init: RequestInit = {
       method: options.method,
+      signal: controller.signal,
       headers: {
         Accept: "application/json",
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -372,12 +418,18 @@ export class WtfApiClient {
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, init);
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new WtfApiError(0, "network_timeout", "API request timed out after 15 seconds");
+      }
+
       throw new WtfApiError(
         0,
         "network_error",
         "API is unavailable or the browser blocked the request",
       );
+    } finally {
+      globalThis.clearTimeout(timeout);
     }
 
     const payload: unknown = await readJson(response);
@@ -392,6 +444,14 @@ export class WtfApiClient {
 
     return options.schema.parse(payload);
   }
+}
+
+function formatHostForUrl(hostname: string): string {
+  return hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function readJson(response: Response): Promise<unknown> {

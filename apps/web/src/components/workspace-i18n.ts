@@ -1,0 +1,362 @@
+import type { WtfIssuePriority, WtfIssueStatus, WtfWorkspaceRole } from "../lib/wtf-api";
+import type { FlowFocusReasonKey, FlowRecommendationKey, FlowRiskTone } from "./flow-insights";
+
+/**
+ * Поддерживаемая локаль интерфейса.
+ */
+export type WorkspaceLocale = "ru" | "en";
+
+/**
+ * Поддерживаемая тема интерфейса.
+ */
+export type WorkspaceTheme = "light" | "dark";
+
+/**
+ * Email, доступный в стандартном docker-compose окружении.
+ */
+export const demoEmail = "demo@wtf.local";
+
+/**
+ * Словари рабочей поверхности.
+ */
+export const copyByLocale = {
+  ru: {
+    appName: "WTF",
+    coreWorkspace: "Основной workspace",
+    controls: {
+      themeToggle: "Тема",
+      switchToDark: "Темная тема",
+      switchToLight: "Светлая тема",
+      switchLanguage: "Switch to English",
+      languageLabel: "RU",
+    },
+    connection: {
+      offline: "нет связи",
+      syncing: "синхронизация",
+      signIn: "вход",
+      synced: "синхронизировано",
+    },
+    header: {
+      signOut: "Выйти",
+      issue: "Задача",
+    },
+    nav: {
+      issues: "Задачи",
+      sprints: "Спринты",
+    },
+    signIn: {
+      subtitle: "Войдите через email из allow-list",
+      emailLabel: "Email",
+      demoHint: "Демо-доступ",
+      useDemo: "Подставить demo@wtf.local",
+      submit: "Войти",
+      emailRequired: "Нужен рабочий email",
+    },
+    members: {
+      title: "Участники",
+      emailLabel: "Email",
+      roleLabel: "Роль",
+      add: "Добавить",
+      emailRequired: "Нужен email участника",
+    },
+    issues: {
+      title: "Задачи",
+      loading: "Загружаю задачи",
+      count: (count: number): string => `${count} ${pluralRu(count, "задача", "задачи", "задач")}`,
+      empty: "Задач пока нет",
+      list: "Список",
+      board: "Доска",
+      newIssue: "Новая задача",
+      titleLabel: "Название",
+      descriptionLabel: "Описание",
+      priorityLabel: "Приоритет",
+      cancel: "Отмена",
+      create: "Создать",
+      retry: "Повторить",
+      movedBy: (actor: string): string => `Перенес: ${actor}`,
+      closedBy: (actor: string): string => `Закрыл: ${actor}`,
+      titleTooShort: "Название задачи должно быть не короче 3 символов",
+      contextNotReady: "Контекст проекта еще не готов",
+      readOnly: "Ваша роль в workspace только для чтения",
+    },
+    inspector: {
+      none: "Задача не выбрана",
+      movement: "Движение",
+      status: "Статус",
+      description: "Описание",
+      noDescription: "Описание не заполнено",
+      comments: "Комментарии",
+      noComments: "Комментариев нет",
+      writeComment: "Написать комментарий",
+      comment: "Комментировать",
+      activity: "Активность",
+      created: "Создана",
+      updated: "Обновлена",
+      moved: "Перенос",
+      closedAt: "Закрыта",
+      never: "никогда",
+      unknown: "неизвестно",
+      you: "вы",
+      open: "открыта",
+      closed: "закрыта",
+      commentRequired: "Нужен текст комментария",
+      issueContextNotReady: "Контекст задачи еще не готов",
+      activities: {
+        created: (actor: string): string => `${actor} создал задачу`,
+        commented: (actor: string): string => `${actor} оставил комментарий`,
+        assigned: (actor: string): string => `${actor} назначил исполнителя`,
+        subtaskAdded: (actor: string): string => `${actor} добавил подзадачу`,
+        relationAdded: (actor: string): string => `${actor} связал задачу`,
+        moved: (actor: string, from: string, to: string): string =>
+          `${actor} перенес ${from} -> ${to}`,
+        fallback: (actor: string, verb: string): string => `${actor}: ${verb}`,
+      },
+    },
+    flow: {
+      title: "Flow Radar",
+      focus: "Фокус",
+      nextFocus: "Следующий фокус",
+      noOpenIssues: "Нет открытых задач",
+      risk: {
+        green: "норма",
+        amber: "внимание",
+        red: "риск",
+      } satisfies Record<FlowRiskTone, string>,
+      metrics: {
+        wip: "WIP",
+        closed7d: "Закрыто 7д",
+        stale: "Застой",
+        comments: "Комментарии",
+        pressure: (value: number): string => `${value}% нагрузки`,
+        open: (value: number): string => `${value} открыто`,
+        staleDetail: "3+ дня без движения",
+        perIssue: (value: number): string => `${value} на задачу`,
+      },
+      recommendations: {
+        urgent: "Сначала заберите срочные задачи в активную работу, потом пополняйте backlog.",
+        review_constraint: "Review стал ограничением. Очистите review до старта новой разработки.",
+        stale_work: "Обновите застоявшиеся задачи: двигать дальше, отложить или закрыть.",
+        wip_limit: "WIP выше комфортного лимита. Завершите активную работу до новых задач.",
+        no_recent_closures: "Нет недавних закрытий. Доведите одну активную задачу до финала.",
+        balanced: "Поток сбалансирован. Держите очередь короткой и берегите review lane.",
+      } satisfies Record<FlowRecommendationKey, string>,
+      focusReasons: {
+        urgent_open: "срочный приоритет еще открыт",
+        stale: "нет движения 3+ дня",
+        review: "review ближе всего к релизу",
+        highest_risk: "самый высокий текущий риск потока",
+      } satisfies Record<FlowFocusReasonKey, string>,
+    },
+    statusLabels: {
+      backlog: "Backlog",
+      todo: "Todo",
+      in_progress: "В работе",
+      in_review: "Review",
+      done: "Done",
+      canceled: "Отменено",
+    } satisfies Record<WtfIssueStatus, string>,
+    priorityLabels: {
+      low: "низкий",
+      medium: "средний",
+      high: "высокий",
+      urgent: "срочно",
+    } satisfies Record<WtfIssuePriority, string>,
+    roleLabels: {
+      owner: "owner",
+      admin: "admin",
+      member: "member",
+      viewer: "viewer",
+    } satisfies Record<WtfWorkspaceRole, string>,
+  },
+  en: {
+    appName: "WTF",
+    coreWorkspace: "Core Workspace",
+    controls: {
+      themeToggle: "Theme",
+      switchToDark: "Dark theme",
+      switchToLight: "Light theme",
+      switchLanguage: "Переключить на русский",
+      languageLabel: "EN",
+    },
+    connection: {
+      offline: "offline",
+      syncing: "syncing",
+      signIn: "sign in",
+      synced: "synced",
+    },
+    header: {
+      signOut: "Sign out",
+      issue: "Issue",
+    },
+    nav: {
+      issues: "Issues",
+      sprints: "Sprints",
+    },
+    signIn: {
+      subtitle: "Sign in with an email from the allow-list",
+      emailLabel: "Email",
+      demoHint: "Demo access",
+      useDemo: "Use demo@wtf.local",
+      submit: "Sign in",
+      emailRequired: "Work email is required",
+    },
+    members: {
+      title: "Members",
+      emailLabel: "Email",
+      roleLabel: "Role",
+      add: "Add",
+      emailRequired: "Member email is required",
+    },
+    issues: {
+      title: "Issues",
+      loading: "Loading work items",
+      count: (count: number): string => `${count} work items`,
+      empty: "No issues yet",
+      list: "List",
+      board: "Board",
+      newIssue: "New issue",
+      titleLabel: "Title",
+      descriptionLabel: "Description",
+      priorityLabel: "Priority",
+      cancel: "Cancel",
+      create: "Create",
+      retry: "Retry",
+      movedBy: (actor: string): string => `Moved by ${actor}`,
+      closedBy: (actor: string): string => `Closed by ${actor}`,
+      titleTooShort: "Issue title must contain at least 3 characters",
+      contextNotReady: "Project context is not ready",
+      readOnly: "Your workspace role is read-only",
+    },
+    inspector: {
+      none: "No issue selected",
+      movement: "Movement",
+      status: "Status",
+      description: "Description",
+      noDescription: "No description",
+      comments: "Comments",
+      noComments: "No comments",
+      writeComment: "Write a comment",
+      comment: "Comment",
+      activity: "Activity",
+      created: "Created",
+      updated: "Updated",
+      moved: "Moved",
+      closedAt: "Closed",
+      never: "never",
+      unknown: "unknown",
+      you: "you",
+      open: "open",
+      closed: "closed",
+      commentRequired: "Comment body is required",
+      issueContextNotReady: "Issue context is not ready",
+      activities: {
+        created: (actor: string): string => `${actor} created issue`,
+        commented: (actor: string): string => `${actor} commented`,
+        assigned: (actor: string): string => `${actor} assigned issue`,
+        subtaskAdded: (actor: string): string => `${actor} added subtask`,
+        relationAdded: (actor: string): string => `${actor} linked issue`,
+        moved: (actor: string, from: string, to: string): string =>
+          `${actor} moved ${from} -> ${to}`,
+        fallback: (actor: string, verb: string): string => `${actor} ${verb}`,
+      },
+    },
+    flow: {
+      title: "Flow Radar",
+      focus: "Focus",
+      nextFocus: "Next focus",
+      noOpenIssues: "No open issues",
+      risk: {
+        green: "healthy",
+        amber: "watch",
+        red: "at risk",
+      } satisfies Record<FlowRiskTone, string>,
+      metrics: {
+        wip: "WIP",
+        closed7d: "Closed 7d",
+        stale: "Stale",
+        comments: "Comments",
+        pressure: (value: number): string => `${value}% pressure`,
+        open: (value: number): string => `${value} open`,
+        staleDetail: "3+ days without movement",
+        perIssue: (value: number): string => `${value} per issue`,
+      },
+      recommendations: {
+        urgent: "Pull urgent work into the active lane before adding new backlog.",
+        review_constraint:
+          "Review is the constraint. Clear review before starting more implementation.",
+        stale_work: "Refresh stale open work and decide whether it moves, waits, or closes.",
+        wip_limit: "WIP is above the comfort limit. Finish active work before creating more.",
+        no_recent_closures:
+          "No recent closures. Pick one active issue and drive it to a terminal status.",
+        balanced: "Flow is balanced. Keep the queue small and protect the current review lane.",
+      } satisfies Record<FlowRecommendationKey, string>,
+      focusReasons: {
+        urgent_open: "urgent priority is still open",
+        stale: "no movement for 3+ days",
+        review: "review work is closest to release",
+        highest_risk: "highest current flow risk",
+      } satisfies Record<FlowFocusReasonKey, string>,
+    },
+    statusLabels: {
+      backlog: "Backlog",
+      todo: "Todo",
+      in_progress: "In progress",
+      in_review: "Review",
+      done: "Done",
+      canceled: "Canceled",
+    } satisfies Record<WtfIssueStatus, string>,
+    priorityLabels: {
+      low: "low",
+      medium: "medium",
+      high: "high",
+      urgent: "urgent",
+    } satisfies Record<WtfIssuePriority, string>,
+    roleLabels: {
+      owner: "owner",
+      admin: "admin",
+      member: "member",
+      viewer: "viewer",
+    } satisfies Record<WtfWorkspaceRole, string>,
+  },
+} as const;
+
+/**
+ * Словарь конкретной локали.
+ */
+export type WorkspaceCopy = (typeof copyByLocale)[WorkspaceLocale];
+
+/**
+ * Возвращает локализованное название статуса.
+ */
+export function statusLabel(status: string, copy: WorkspaceCopy): string {
+  if (isIssueStatus(status)) {
+    return copy.statusLabels[status];
+  }
+
+  return status;
+}
+
+function isIssueStatus(status: string): status is WtfIssueStatus {
+  return (
+    status === "backlog" ||
+    status === "todo" ||
+    status === "in_progress" ||
+    status === "in_review" ||
+    status === "done" ||
+    status === "canceled"
+  );
+}
+
+function pluralRu(count: number, one: string, few: string, many: string): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) {
+    return one;
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return few;
+  }
+
+  return many;
+}

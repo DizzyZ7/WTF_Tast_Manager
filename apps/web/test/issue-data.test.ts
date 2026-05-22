@@ -5,42 +5,24 @@ import type { WtfIssue } from "../src/lib/wtf-api";
 describe("sortIssuesByPriority", () => {
   it("сортирует задачи по приоритету и ключу", () => {
     const issues: WebIssue[] = [
-      {
+      makeWebIssue({
         id: "3",
         key: "WTF-3",
         title: "C",
-        description: "",
-        status: "todo",
         priority: "low",
-        movedBy: null,
-        movedAt: null,
-        closedBy: null,
-        closedAt: null,
-      },
-      {
+      }),
+      makeWebIssue({
         id: "2",
         key: "WTF-2",
         title: "B",
-        description: "",
-        status: "todo",
         priority: "urgent",
-        movedBy: null,
-        movedAt: null,
-        closedBy: null,
-        closedAt: null,
-      },
-      {
+      }),
+      makeWebIssue({
         id: "1",
         key: "WTF-1",
         title: "A",
-        description: "",
-        status: "todo",
         priority: "urgent",
-        movedBy: null,
-        movedAt: null,
-        closedBy: null,
-        closedAt: null,
-      },
+      }),
     ];
 
     expect(sortIssuesByPriority(issues).map((issue) => issue.key)).toEqual([
@@ -50,6 +32,25 @@ describe("sortIssuesByPriority", () => {
     ]);
   });
 });
+
+function makeWebIssue(input: Partial<WebIssue> & Pick<WebIssue, "id" | "key" | "title">): WebIssue {
+  return {
+    description: "",
+    status: "todo",
+    priority: "medium",
+    reporterId: "user-1",
+    assigneeId: null,
+    comments: [],
+    activities: [],
+    movedBy: null,
+    movedAt: null,
+    closedBy: null,
+    closedAt: null,
+    createdAt: "2026-05-20T15:00:00.000Z",
+    updatedAt: "2026-05-20T15:00:00.000Z",
+    ...input,
+  };
+}
 
 describe("toWebIssue", () => {
   it("считает canceled закрытием задачи и показывает email закрывшего", () => {
