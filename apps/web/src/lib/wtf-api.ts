@@ -21,10 +21,16 @@ const tokenPairSchema = z.object({
   expiresIn: z.number(),
 });
 
+const registrationResponseSchema = z.object({
+  status: z.literal("verification_sent"),
+  email: z.string(),
+});
+
 const workspaceSchema = z.object({
   id: z.string(),
   name: z.string(),
   slug: z.string(),
+  internalNumber: z.string().nullable(),
   members: z.array(
     z.object({
       userId: z.string(),
@@ -88,6 +94,31 @@ const issueListSchema = z.object({
   issues: z.array(issueSchema),
 });
 
+const workspaceJoinRequestSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  requesterUserId: z.string(),
+  requesterEmail: z.string(),
+  internalNumber: z.string(),
+  status: z.literal("pending"),
+  requestedAt: z.string(),
+});
+
+const workspaceJoinRequestListSchema = z.object({
+  requests: z.array(workspaceJoinRequestSchema),
+});
+
+const requestWorkspaceAccessResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("pending"),
+    request: workspaceJoinRequestSchema,
+  }),
+  z.object({
+    status: z.literal("already_member"),
+    workspace: workspaceSchema,
+  }),
+]);
+
 const errorResponseSchema = z.object({
   error: z.object({
     code: z.string(),
@@ -117,6 +148,11 @@ export type WtfWorkspaceRole = z.infer<typeof workspaceSchema>["members"][number
 export type WtfCurrentUser = z.infer<typeof tokenPairSchema>["user"];
 
 /**
+ * JWT-сессия browser-клиента.
+ */
+export type WtfAuthSession = z.infer<typeof tokenPairSchema>;
+
+/**
  * Снимок issue, полученный из API.
  */
 export type WtfIssue = z.infer<typeof issueSchema>;
@@ -127,6 +163,16 @@ export type WtfIssue = z.infer<typeof issueSchema>;
 export type WtfWorkspace = z.infer<typeof workspaceSchema>;
 
 /**
+ * Заявка доступа в корпоративный workspace.
+ */
+export type WtfWorkspaceJoinRequest = z.infer<typeof workspaceJoinRequestSchema>;
+
+/**
+ * Ответ на запрос входа в корпоративный workspace.
+ */
+export type WtfWorkspaceAccessRequestResult = z.infer<typeof requestWorkspaceAccessResponseSchema>;
+
+/**
  * Снимок project, полученный из API.
  */
 export type WtfProject = z.infer<typeof projectSchema>;
@@ -135,8 +181,12 @@ export type WtfProject = z.infer<typeof projectSchema>;
  * Контекст проекта, в котором создаются issue.
  */
 export interface WtfProjectContext {
+  /** JWT-сессия локального пользователя. */
+  readonly authSession: WtfAuthSession;
   /** Access token локального пользователя. */
   readonly accessToken: string;
+  /** Refresh token локального пользователя. */
+  readonly refreshToken: string;
   /** Пользователь текущей сессии. */
   readonly currentUser: WtfCurrentUser;
   /** Workspace для текущей рабочей поверхности. */
@@ -161,10 +211,28 @@ export interface CreateIssueInput {
  * Данные для добавления участника workspace.
  */
 export interface AddWorkspaceMemberInput {
-  /** Email сотрудника из allow-list API. */
+  /** Email зарегистрированного сотрудника. */
   readonly email: string;
   /** Роль в workspace. */
   readonly role: Exclude<WtfWorkspaceRole, "owner">;
+}
+
+/**
+ * Данные для запроса доступа в корпоративный workspace.
+ */
+export interface RequestWorkspaceAccessInput {
+  /** Внутренний номер корпоративного workspace. */
+  readonly internalNumber: string;
+}
+
+/**
+ * Данные для создания корпоративного workspace.
+ */
+export interface CreateCorporateWorkspaceInput {
+  /** Название workspace. */
+  readonly name: string;
+  /** Внутренний номер корпоративного workspace. */
+  readonly internalNumber: string;
 }
 
 /**
@@ -179,8 +247,20 @@ export interface AddIssueCommentInput {
  * Данные для регистрации/входа.
  */
 export interface SignInInput {
-  /** Рабочий email из allow-list API. */
+  /** Рабочий email. */
   readonly email: string;
+  /** Пароль учетной записи. */
+  readonly password: string;
+}
+
+/**
+ * Данные для регистрации пользователя.
+ */
+export interface RegisterInput {
+  /** Рабочий email. */
+  readonly email: string;
+  /** Пароль учетной записи. */
+  readonly password: string;
 }
 
 /**
@@ -202,14 +282,9 @@ export class WtfApiError extends Error {
   }
 }
 
-const bootstrapWorkspace = {
-  name: "Demo Workspace",
-  slug: "demo-workspace",
-};
-
 const bootstrapProject = {
-  name: "WTF Demo",
-  key: "WTF",
+  name: "Tasks",
+  key: "TASKS",
 };
 
 const requestTimeoutMs = 15_000;
@@ -247,14 +322,132 @@ export class WtfApiClient {
   public constructor(private readonly baseUrl: string) {}
 
   /**
-   * Готовит demo workspace/project и возвращает контекст для работы с issue.
+   * Регистрирует пользователя и запускает отправку письма подтверждения email.
+   */
+  public async register(input: RegisterInput): Promise<string> {
+    const response = await this.request("/v1/auth/register", {
+      method: "POST",
+      schema: registrationResponseSchema,
+      body: {
+        email: input.email,
+        password: input.password,
+      },
+    });
+
+    return response.email;
+  }
+
+  /**
+   * Обновляет browser-сессию по refresh token.
+   */
+  public async refreshSession(refreshToken: string): Promise<WtfAuthSession> {
+    return this.request("/v1/auth/refresh", {
+      method: "POST",
+      schema: tokenPairSchema,
+      body: { refreshToken },
+    });
+  }
+
+  /**
+   * Готовит личный workspace/project и возвращает контекст для работы с issue.
    */
   public async bootstrapProjectContext(input: SignInInput): Promise<WtfProjectContext> {
     const tokenPair = await this.issueAccessToken(input);
-    const workspace = await this.getOrCreateWorkspace(tokenPair.accessToken);
+    return this.bootstrapProjectContextFromSession(tokenPair);
+  }
+
+  /**
+   * Готовит личный workspace/project из уже сохраненной JWT-сессии.
+   */
+  public async bootstrapProjectContextFromSession(
+    tokenPair: WtfAuthSession,
+  ): Promise<WtfProjectContext> {
+    const workspace = await this.getOrCreatePersonalWorkspace(tokenPair);
+    return this.bootstrapProjectContextForWorkspace(tokenPair, workspace);
+  }
+
+  /**
+   * Готовит project внутри выбранного workspace и возвращает контекст.
+   */
+  public async bootstrapProjectContextForWorkspace(
+    tokenPair: WtfAuthSession,
+    workspace: WtfWorkspace,
+  ): Promise<WtfProjectContext> {
     const project = await this.getOrCreateProject(tokenPair.accessToken, workspace.id);
 
-    return { accessToken: tokenPair.accessToken, currentUser: tokenPair.user, workspace, project };
+    return {
+      authSession: tokenPair,
+      accessToken: tokenPair.accessToken,
+      refreshToken: tokenPair.refreshToken,
+      currentUser: tokenPair.user,
+      workspace,
+      project,
+    };
+  }
+
+  /**
+   * Запрашивает доступ к корпоративному workspace по внутреннему номеру.
+   */
+  public async requestWorkspaceAccess(
+    context: WtfProjectContext,
+    input: RequestWorkspaceAccessInput,
+  ): Promise<WtfWorkspaceAccessRequestResult> {
+    return this.request("/v1/workspaces/join-requests", {
+      method: "POST",
+      token: context.accessToken,
+      schema: requestWorkspaceAccessResponseSchema,
+      body: { internalNumber: input.internalNumber },
+    });
+  }
+
+  /**
+   * Возвращает pending-заявки доступа текущего workspace.
+   */
+  public async listPendingWorkspaceJoinRequests(
+    context: WtfProjectContext,
+  ): Promise<ReadonlyArray<WtfWorkspaceJoinRequest>> {
+    const payload = await this.request(`/v1/workspaces/${context.workspace.id}/join-requests`, {
+      method: "GET",
+      token: context.accessToken,
+      schema: workspaceJoinRequestListSchema,
+    });
+    return payload.requests;
+  }
+
+  /**
+   * Подтверждает pending-заявку доступа.
+   */
+  public async approveWorkspaceJoinRequest(
+    context: WtfProjectContext,
+    requestId: string,
+  ): Promise<WtfWorkspace> {
+    return this.request(
+      `/v1/workspaces/${context.workspace.id}/join-requests/${requestId}/approve`,
+      {
+        method: "POST",
+        token: context.accessToken,
+        schema: workspaceSchema,
+      },
+    );
+  }
+
+  /**
+   * Создает корпоративный workspace, где текущий пользователь становится первым владельцем.
+   */
+  public async createCorporateWorkspace(
+    context: WtfProjectContext,
+    input: CreateCorporateWorkspaceInput,
+  ): Promise<WtfWorkspace> {
+    return this.request("/v1/workspaces", {
+      method: "POST",
+      token: context.accessToken,
+      schema: workspaceSchema,
+      body: {
+        name: input.name,
+        slug: corporateWorkspaceSlug(input.internalNumber),
+        internalNumber: input.internalNumber,
+      },
+    });
   }
 
   /**
@@ -293,7 +486,7 @@ export class WtfApiClient {
   }
 
   /**
-   * Добавляет сотрудника в текущий workspace. API проверяет owner/admin и allow-list email.
+   * Добавляет сотрудника в текущий workspace. API проверяет роль и подтвержденный email.
    */
   public async addWorkspaceMember(
     context: WtfProjectContext,
@@ -343,18 +536,19 @@ export class WtfApiClient {
   }
 
   private async issueAccessToken(input: SignInInput): Promise<z.infer<typeof tokenPairSchema>> {
-    return this.request("/v1/auth/token", {
+    return this.request("/v1/auth/login", {
       method: "POST",
       schema: tokenPairSchema,
-      body: { email: input.email },
+      body: { email: input.email, password: input.password },
     });
   }
 
-  private async getOrCreateWorkspace(accessToken: string): Promise<WtfWorkspace> {
+  private async getOrCreatePersonalWorkspace(tokenPair: WtfAuthSession): Promise<WtfWorkspace> {
+    const workspace = personalWorkspaceForUser(tokenPair.user);
     try {
-      return await this.request(`/v1/workspaces/by-slug/${bootstrapWorkspace.slug}`, {
+      return await this.request(`/v1/workspaces/by-slug/${workspace.slug}`, {
         method: "GET",
-        token: accessToken,
+        token: tokenPair.accessToken,
         schema: workspaceSchema,
       });
     } catch (error) {
@@ -364,11 +558,11 @@ export class WtfApiClient {
 
       return this.request("/v1/workspaces", {
         method: "POST",
-        token: accessToken,
+        token: tokenPair.accessToken,
         schema: workspaceSchema,
         body: {
-          name: bootstrapWorkspace.name,
-          slug: bootstrapWorkspace.slug,
+          name: workspace.name,
+          slug: workspace.slug,
         },
       });
     }
@@ -448,6 +642,20 @@ export class WtfApiClient {
 
 function formatHostForUrl(hostname: string): string {
   return hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+}
+
+function personalWorkspaceForUser(user: WtfCurrentUser): {
+  readonly name: string;
+  readonly slug: string;
+} {
+  return {
+    name: "Personal Tasks",
+    slug: `personal-${user.id}`,
+  };
+}
+
+function corporateWorkspaceSlug(internalNumber: string): string {
+  return `corp-${internalNumber.trim().toLowerCase()}`;
 }
 
 function isAbortError(error: unknown): boolean {

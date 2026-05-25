@@ -12,6 +12,8 @@ export interface IssueRepository {
   findById(id: IssueId): Promise<Issue | null>;
   /** Ищет issue по ключу внутри workspace. */
   findByWorkspaceAndKey(workspaceId: WorkspaceId, key: IssueKey): Promise<Issue | null>;
+  /** Считает issue проекта без ограничения страницы. */
+  countByProject(projectId: ProjectId): Promise<number>;
   /** Возвращает issue проекта с ограничением размера страницы. */
   findByProject(projectId: ProjectId, limit: number): Promise<ReadonlyArray<Issue>>;
 }

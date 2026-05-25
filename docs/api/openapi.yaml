@@ -19,16 +19,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
-  /v1/auth/token:
+  /v1/auth/register:
     post:
-      summary: Зарегистрировать/войти по email из allow-list и выпустить JWT пару.
+      summary: Зарегистрировать пользователя и отправить письмо подтверждения email.
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TokenRequest"
+              $ref: "#/components/schemas/AuthPasswordRequest"
+      responses:
+        "202":
+          description: Письмо подтверждения поставлено на отправку.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
+  /v1/auth/verify-email:
+    get:
+      summary: Подтвердить email по token из письма.
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 32
+      responses:
+        "200":
+          description: Email подтвержден.
+          content:
+            text/html:
+              schema:
+                type: string
+  /v1/auth/login:
+    post:
+      summary: Войти по email и паролю, выпустить JWT пару.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthPasswordRequest"
+      responses:
+        "200":
+          description: Access и refresh токены.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+  /v1/auth/token:
+    post:
+      summary: Deprecated alias для /v1/auth/login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthPasswordRequest"
       responses:
         "200":
           description: Access и refresh токены.
@@ -72,7 +124,7 @@ paths:
                 $ref: "#/components/schemas/OAuthAuthorizeResponse"
   /v1/workspaces:
     post:
-      summary: Создать workspace.
+      summary: Создать личный или корпоративный workspace.
       requestBody:
         required: true
         content:
@@ -86,6 +138,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Workspace"
+  /v1/workspaces/join-requests:
+    post:
+      summary: Запросить доступ к корпоративному workspace по внутреннему номеру.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestWorkspaceAccessRequest"
+      responses:
+        "200":
+          description: Пользователь уже является участником workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAccessRequestResponse"
+        "202":
+          description: Заявка создана или уже ожидает подтверждения.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceAccessRequestResponse"
   /v1/workspaces/by-slug/{slug}:
     get:
       summary: Найти workspace по slug.
@@ -123,7 +197,8 @@ paths:
                 $ref: "#/components/schemas/Project"
   /v1/workspaces/{workspaceId}/members:
     post:
-      summary: Добавить участника workspace по allow-listed email.
+      summary: Добавить зарегистрированного и подтвержденного участника workspace.
+      description: В личном workspace доступно owner/admin; в корпоративном workspace с internalNumber доступно только owner.
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -135,6 +210,38 @@ paths:
       responses:
         "201":
           description: Участник добавлен.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "403":
+          description: Недостаточно прав для управления участниками workspace.
+  /v1/workspaces/{workspaceId}/join-requests:
+    get:
+      summary: Получить pending-заявки доступа к workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Pending-заявки.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceJoinRequestListResponse"
+  /v1/workspaces/{workspaceId}/join-requests/{requestId}/approve:
+    post:
+      summary: Подтвердить заявку доступа владельцем workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Заявка подтверждена, пользователь добавлен как member.
           content:
             application/json:
               schema:
@@ -279,10 +386,23 @@ components:
       properties:
         status:
           const: ok
-    TokenRequest:
+    AuthPasswordRequest:
       type: object
-      required: [email]
+      required: [email, password]
       properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+    RegistrationResponse:
+      type: object
+      required: [status, email]
+      properties:
+        status:
+          const: verification_sent
         email:
           type: string
           format: email
@@ -332,6 +452,69 @@ components:
         slug:
           type: string
           pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+        internalNumber:
+          type: string
+          minLength: 2
+          maxLength: 32
+          pattern: "^[A-Za-z0-9-]+$"
+          description: Внутренний номер корпоративного workspace. Если не задан, workspace личный.
+    RequestWorkspaceAccessRequest:
+      type: object
+      required: [internalNumber]
+      properties:
+        internalNumber:
+          type: string
+          minLength: 2
+          maxLength: 32
+          pattern: "^[A-Za-z0-9-]+$"
+    WorkspaceAccessRequestResponse:
+      oneOf:
+        - type: object
+          required: [status, request]
+          properties:
+            status:
+              const: pending
+            request:
+              $ref: "#/components/schemas/WorkspaceJoinRequest"
+        - type: object
+          required: [status, workspace]
+          properties:
+            status:
+              const: already_member
+            workspace:
+              $ref: "#/components/schemas/Workspace"
+    WorkspaceJoinRequestListResponse:
+      type: object
+      required: [requests]
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceJoinRequest"
+    WorkspaceJoinRequest:
+      type: object
+      required:
+        [id, workspaceId, requesterUserId, requesterEmail, internalNumber, status, requestedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        requesterUserId:
+          type: string
+          format: uuid
+        requesterEmail:
+          type: string
+          format: email
+        internalNumber:
+          type: string
+        status:
+          const: pending
+        requestedAt:
+          type: string
+          format: date-time
     AddWorkspaceMemberRequest:
       type: object
       required: [email]
@@ -381,7 +564,7 @@ components:
       enum: [backlog, todo, in_progress, in_review, done, canceled]
     Workspace:
       type: object
-      required: [id, name, slug, members, createdAt, updatedAt]
+      required: [id, name, slug, internalNumber, members, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -389,6 +572,10 @@ components:
           type: string
         slug:
           type: string
+        internalNumber:
+          type:
+            - string
+            - "null"
         members:
           type: array
           items:

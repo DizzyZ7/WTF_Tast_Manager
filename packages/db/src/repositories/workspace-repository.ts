@@ -26,6 +26,7 @@ export class PgWorkspaceRepository implements WorkspaceRepository {
           id: snapshot.id,
           name: snapshot.name,
           slug: snapshot.slug,
+          internalNumber: snapshot.internalNumber,
           createdAt: new Date(snapshot.createdAt),
           updatedAt: new Date(snapshot.updatedAt),
         })
@@ -34,6 +35,7 @@ export class PgWorkspaceRepository implements WorkspaceRepository {
           set: {
             name: snapshot.name,
             slug: snapshot.slug,
+            internalNumber: snapshot.internalNumber,
             updatedAt: new Date(snapshot.updatedAt),
           },
         });
@@ -74,6 +76,26 @@ export class PgWorkspaceRepository implements WorkspaceRepository {
    */
   public async findBySlug(slug: WorkspaceSlug): Promise<Workspace | null> {
     const [row] = await this.db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
+    if (row === undefined) {
+      return null;
+    }
+
+    const members = await this.db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, row.id));
+    return mapWorkspace(row, members);
+  }
+
+  /**
+   * Ищет workspace по внутреннему номеру.
+   */
+  public async findByInternalNumber(internalNumber: string): Promise<Workspace | null> {
+    const [row] = await this.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.internalNumber, internalNumber))
+      .limit(1);
     if (row === undefined) {
       return null;
     }

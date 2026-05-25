@@ -9,17 +9,37 @@ export const issueStatusSchema = z.enum([
   "done",
   "canceled",
 ]);
-export const tokenRequestSchema = z.object({
+const passwordSchema = z.string().min(8).max(256);
+export const registerRequestSchema = z.object({
   email: z.email(),
-  userId: uuidSchema.optional(),
+  password: passwordSchema,
+});
+export const loginRequestSchema = z.object({
+  email: z.email(),
+  password: passwordSchema,
+});
+export const tokenRequestSchema = loginRequestSchema;
+export const verifyEmailQuerySchema = z.object({
+  token: z.string().min(32).max(256),
 });
 export const refreshRequestSchema = z.object({
   refreshToken: z.string().min(32),
 });
+const internalNumberSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(32)
+  .regex(/^[A-Za-z0-9-]+$/)
+  .transform((value) => value.toUpperCase());
 export const createWorkspaceSchema = z.object({
   name: z.string().min(2).max(120),
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
+  internalNumber: internalNumberSchema.optional(),
   ownerUserId: uuidSchema.optional(),
+});
+export const requestWorkspaceAccessSchema = z.object({
+  internalNumber: internalNumberSchema,
 });
 export const addWorkspaceMemberSchema = z.object({
   email: z.email(),

@@ -23,6 +23,27 @@ describe("Workspace", () => {
     expect(workspace.pullDomainEvents()).toHaveLength(0);
   });
 
+  it("нормализует и валидирует внутренний номер корпоративного workspace", () => {
+    const workspace = Workspace.create({
+      name: "Core Team",
+      slug: "core-team",
+      internalNumber: " corp-001 ",
+      ownerUserId: ownerId,
+      now,
+    });
+
+    expect(workspace.toSnapshot().internalNumber).toBe("CORP-001");
+    expect(() =>
+      Workspace.create({
+        name: "Core Team",
+        slug: "core-team",
+        internalNumber: "corp_001",
+        ownerUserId: ownerId,
+        now,
+      }),
+    ).toThrow(/internalNumber/);
+  });
+
   it("запрещает дублировать участника", () => {
     const workspace = Workspace.create({
       name: "Core Team",

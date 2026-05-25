@@ -12,9 +12,9 @@ export type WorkspaceLocale = "ru" | "en";
 export type WorkspaceTheme = "light" | "dark";
 
 /**
- * Email, доступный в стандартном docker-compose окружении.
+ * Пример email для формы регистрации.
  */
-export const demoEmail = "demo@wtf.local";
+export const demoEmail = "user@example.com";
 
 /**
  * Словари рабочей поверхности.
@@ -45,12 +45,19 @@ export const copyByLocale = {
       sprints: "Спринты",
     },
     signIn: {
-      subtitle: "Войдите через email из allow-list",
+      subtitle: "Войдите или зарегистрируйтесь",
+      loginTab: "Вход",
+      registerTab: "Регистрация",
       emailLabel: "Email",
-      demoHint: "Демо-доступ",
-      useDemo: "Подставить demo@wtf.local",
-      submit: "Войти",
+      passwordLabel: "Пароль",
+      demoHint: "Пример email",
+      useDemo: "Подставить user@example.com",
+      loginSubmit: "Войти",
+      registerSubmit: "Зарегистрироваться",
       emailRequired: "Нужен рабочий email",
+      passwordRequired: "Пароль должен быть не короче 8 символов",
+      verificationSent: (email: string): string =>
+        `Письмо отправлено на ${email}. Нажмите кнопку подтверждения в письме, затем войдите с паролем.`,
     },
     members: {
       title: "Участники",
@@ -58,6 +65,25 @@ export const copyByLocale = {
       roleLabel: "Роль",
       add: "Добавить",
       emailRequired: "Нужен email участника",
+    },
+    workspaceAccess: {
+      title: "Корпоративный доступ",
+      internalNumberLabel: "Внутренний номер",
+      internalNumberPlaceholder: "CORP-001",
+      request: "Открыть / запросить",
+      createTitle: "Создать корпоративный",
+      workspaceNameLabel: "Название",
+      workspaceNamePlaceholder: "Команда продукта",
+      create: "Создать",
+      pendingTitle: "Заявки",
+      approve: "Подтвердить",
+      internalNumberRequired: "Введите внутренний номер workspace",
+      workspaceNameRequired: "Введите название workspace",
+      requestSent: (internalNumber: string): string =>
+        `Заявка для ${internalNumber} отправлена владельцу.`,
+      created: (internalNumber: string): string =>
+        `Корпоративный workspace ${internalNumber} создан.`,
+      approved: "Заявка подтверждена",
     },
     issues: {
       title: "Задачи",
@@ -193,12 +219,19 @@ export const copyByLocale = {
       sprints: "Sprints",
     },
     signIn: {
-      subtitle: "Sign in with an email from the allow-list",
+      subtitle: "Sign in or register",
+      loginTab: "Sign in",
+      registerTab: "Register",
       emailLabel: "Email",
-      demoHint: "Demo access",
-      useDemo: "Use demo@wtf.local",
-      submit: "Sign in",
+      passwordLabel: "Password",
+      demoHint: "Email example",
+      useDemo: "Use user@example.com",
+      loginSubmit: "Sign in",
+      registerSubmit: "Register",
       emailRequired: "Work email is required",
+      passwordRequired: "Password must contain at least 8 characters",
+      verificationSent: (email: string): string =>
+        `Email sent to ${email}. Click the confirmation button in the email, then sign in with your password.`,
     },
     members: {
       title: "Members",
@@ -206,6 +239,25 @@ export const copyByLocale = {
       roleLabel: "Role",
       add: "Add",
       emailRequired: "Member email is required",
+    },
+    workspaceAccess: {
+      title: "Corporate access",
+      internalNumberLabel: "Internal number",
+      internalNumberPlaceholder: "CORP-001",
+      request: "Open / request",
+      createTitle: "Create corporate",
+      workspaceNameLabel: "Name",
+      workspaceNamePlaceholder: "Product team",
+      create: "Create",
+      pendingTitle: "Requests",
+      approve: "Approve",
+      internalNumberRequired: "Enter workspace internal number",
+      workspaceNameRequired: "Enter workspace name",
+      requestSent: (internalNumber: string): string =>
+        `Request for ${internalNumber} was sent to the owner.`,
+      created: (internalNumber: string): string =>
+        `Corporate workspace ${internalNumber} was created.`,
+      approved: "Request approved",
     },
     issues: {
       title: "Issues",

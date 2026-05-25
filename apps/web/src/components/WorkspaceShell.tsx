@@ -4,14 +4,19 @@ import { Badge, Button, IssueRow, cn } from "@wtf/ui";
 import {
   Activity,
   AlertCircle,
+  Building2,
+  Check,
   Columns3,
+  KeyRound,
   Languages,
   ListFilter,
   Loader2,
   LogOut,
+  MailCheck,
   Plus,
   Radio,
   Sun,
+  UserPlus,
   X,
 } from "lucide-react";
 import type { ChangeEvent, DragEvent, ReactNode, SyntheticEvent } from "react";
@@ -20,10 +25,12 @@ import { create } from "zustand";
 import {
   WtfApiError,
   createWtfApiClient,
+  type WtfAuthSession,
   type WtfIssuePriority,
   type WtfIssueStatus,
   type WtfProjectContext,
   type WtfWorkspace,
+  type WtfWorkspaceJoinRequest,
   type WtfWorkspaceRole,
 } from "../lib/wtf-api";
 import { calculateFlowInsights } from "./flow-insights";
@@ -43,6 +50,11 @@ import {
  * Состояние загрузки workspace.
  */
 type WorkspaceStatus = "auth_required" | "loading" | "ready" | "failed";
+
+/**
+ * Режим формы авторизации.
+ */
+type AuthMode = "login" | "register";
 
 /**
  * Draft формы создания issue.
@@ -108,7 +120,8 @@ const emptyDraft: IssueDraft = {
   priority: "medium",
 };
 
-const authEmailStorageKey = "wtf.auth.email";
+const authSessionStorageKey = "wtf.auth.session";
+const legacyAuthEmailStorageKey = "wtf.auth.email";
 const localeStorageKey = "wtf.ui.locale";
 const themeStorageKey = "wtf.ui.theme";
 
@@ -234,17 +247,32 @@ export function WorkspaceShell(): ReactNode {
   const selectedIssue =
     issues.find((candidate) => candidate.id === selectedIssueId) ?? sortedIssues[0] ?? null;
   const [draft, setDraft] = useState<IssueDraft>(emptyDraft);
-  const [signInEmail, setSignInEmail] = useState("");
-  const [isSigningIn, setSigningIn] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [isSubmittingAuth, setSubmittingAuth] = useState(false);
   const [movingIssueId, setMovingIssueId] = useState<string | null>(null);
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState<Exclude<WtfWorkspaceRole, "owner">>("member");
   const [isAddingMember, setAddingMember] = useState(false);
+  const [corporateInternalNumber, setCorporateInternalNumber] = useState("");
+  const [corporateWorkspaceName, setCorporateWorkspaceName] = useState("");
+  const [newCorporateInternalNumber, setNewCorporateInternalNumber] = useState("");
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
+  const [isRequestingWorkspaceAccess, setRequestingWorkspaceAccess] = useState(false);
+  const [isCreatingCorporateWorkspace, setCreatingCorporateWorkspace] = useState(false);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<
+    ReadonlyArray<WtfWorkspaceJoinRequest>
+  >([]);
+  const [approvingJoinRequestId, setApprovingJoinRequestId] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [isAddingComment, setAddingComment] = useState(false);
   const [locale, setLocale] = useState<WorkspaceLocale>(initialLocale);
   const [theme, setTheme] = useState<WorkspaceTheme>(initialTheme);
   const copy = copyByLocale[locale];
+  const currentWorkspaceMember =
+    context?.workspace.members.find((member) => member.userId === context.currentUser.id) ?? null;
 
   useEffect(() => {
     const storedLocale = window.localStorage.getItem(localeStorageKey);
@@ -278,14 +306,15 @@ export function WorkspaceShell(): ReactNode {
     let mounted = true;
 
     async function loadWorkspace(): Promise<void> {
-      const storedEmail = window.localStorage.getItem(authEmailStorageKey);
-      if (storedEmail === null) {
+      const storedSession = readStoredAuthSession();
+      window.localStorage.removeItem(legacyAuthEmailStorageKey);
+      if (storedSession === null) {
         setAuthRequired();
         return;
       }
 
-      setSignInEmail(storedEmail);
-      await loadWorkspaceForEmail(storedEmail, mounted);
+      setAuthEmail(storedSession.user.email);
+      await loadWorkspaceForSession(storedSession, mounted);
     }
 
     void loadWorkspace();
@@ -295,29 +324,53 @@ export function WorkspaceShell(): ReactNode {
     };
   }, [api, setAuthRequired, setLoadFailed, setLoading, setReady]);
 
+  useEffect(() => {
+    if (context === null || currentWorkspaceMember?.role !== "owner") {
+      setPendingJoinRequests([]);
+      return;
+    }
+
+    const activeContext = context;
+    let mounted = true;
+    async function loadJoinRequests(): Promise<void> {
+      try {
+        const requests = await api.listPendingWorkspaceJoinRequests(activeContext);
+        if (mounted) {
+          setPendingJoinRequests(requests);
+        }
+      } catch (error) {
+        if (mounted && error instanceof WtfApiError && error.status !== 403) {
+          setErrorMessage(messageFromError(error));
+        }
+      }
+    }
+
+    void loadJoinRequests();
+    return () => {
+      mounted = false;
+    };
+  }, [api, context, currentWorkspaceMember?.role, setErrorMessage]);
+
   async function reloadWorkspace(): Promise<void> {
-    const email =
-      context?.currentUser.email ??
-      window.localStorage.getItem(authEmailStorageKey) ??
-      signInEmail.trim();
-    if (email.length === 0) {
+    const session = context?.authSession ?? readStoredAuthSession();
+    if (session === null) {
       setAuthRequired();
       return;
     }
 
-    await loadWorkspaceForEmail(email, true);
+    await loadWorkspaceForSession(session, true);
   }
 
-  async function loadWorkspaceForEmail(email: string, mounted: boolean): Promise<void> {
+  async function loadWorkspaceForSession(session: WtfAuthSession, mounted: boolean): Promise<void> {
     setLoading();
 
     try {
-      const nextContext = await api.bootstrapProjectContext({ email });
+      const nextContext = await bootstrapContextWithRefresh(session);
       const loadedIssues = await api.listIssues(nextContext);
-      window.localStorage.setItem(authEmailStorageKey, nextContext.currentUser.email);
+      writeStoredAuthSession(nextContext.authSession);
       if (mounted) {
         setReady(nextContext, loadedIssues.map(toWebIssue));
-        setSignInEmail(nextContext.currentUser.email);
+        setAuthEmail(nextContext.currentUser.email);
       }
     } catch (error) {
       if (!mounted) {
@@ -325,7 +378,7 @@ export function WorkspaceShell(): ReactNode {
       }
 
       if (error instanceof WtfApiError && (error.status === 401 || error.status === 403)) {
-        window.localStorage.removeItem(authEmailStorageKey);
+        clearStoredAuthSession();
         setAuthRequired(error.message);
         return;
       }
@@ -334,25 +387,89 @@ export function WorkspaceShell(): ReactNode {
     }
   }
 
-  async function submitSignIn(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
+  async function bootstrapContextWithRefresh(session: WtfAuthSession): Promise<WtfProjectContext> {
+    try {
+      return await api.bootstrapProjectContextFromSession(session);
+    } catch (error) {
+      if (!(error instanceof WtfApiError) || error.status !== 401) {
+        throw error;
+      }
+
+      const refreshedSession = await api.refreshSession(session.refreshToken);
+      return api.bootstrapProjectContextFromSession(refreshedSession);
+    }
+  }
+
+  async function loadWorkspaceForCredentials(
+    email: string,
+    password: string,
+    mounted: boolean,
+  ): Promise<void> {
+    setLoading();
+
+    try {
+      const nextContext = await api.bootstrapProjectContext({ email, password });
+      const loadedIssues = await api.listIssues(nextContext);
+      writeStoredAuthSession(nextContext.authSession);
+      if (mounted) {
+        setReady(nextContext, loadedIssues.map(toWebIssue));
+        setAuthEmail(nextContext.currentUser.email);
+        setAuthPassword("");
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (error instanceof WtfApiError && (error.status === 401 || error.status === 403)) {
+        clearStoredAuthSession();
+        setAuthRequired(error.message);
+        return;
+      }
+
+      setLoadFailed(messageFromError(error));
+    }
+  }
+
+  async function submitAuth(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const email = signInEmail.trim();
+    const email = authEmail.trim();
     if (email.length === 0) {
       setErrorMessage(copy.signIn.emailRequired);
       return;
     }
 
-    setSigningIn(true);
+    if (authPassword.length < 8) {
+      setErrorMessage(copy.signIn.passwordRequired);
+      return;
+    }
+
+    setSubmittingAuth(true);
+    setAuthNotice(null);
     try {
-      await loadWorkspaceForEmail(email, true);
+      if (authMode === "register") {
+        const registeredEmail = await api.register({ email, password: authPassword });
+        setAuthNotice(copy.signIn.verificationSent(registeredEmail));
+        setAuthMode("login");
+        setAuthPassword("");
+        setErrorMessage(null);
+        return;
+      }
+
+      await loadWorkspaceForCredentials(email, authPassword, true);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
     } finally {
-      setSigningIn(false);
+      setSubmittingAuth(false);
     }
   }
 
   function signOut(): void {
-    window.localStorage.removeItem(authEmailStorageKey);
-    setSignInEmail("");
+    clearStoredAuthSession();
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthNotice(null);
+    setAuthMode("login");
     setAuthRequired();
   }
 
@@ -404,6 +521,121 @@ export function WorkspaceShell(): ReactNode {
       setErrorMessage(messageFromError(error));
     } finally {
       setAddingMember(false);
+    }
+  }
+
+  async function switchWorkspace(workspace: WtfWorkspace): Promise<void> {
+    if (context === null) {
+      setErrorMessage(copy.issues.contextNotReady);
+      return;
+    }
+
+    setLoading();
+    try {
+      const nextContext = await api.bootstrapProjectContextForWorkspace(
+        context.authSession,
+        workspace,
+      );
+      const loadedIssues = await api.listIssues(nextContext);
+      setReady(nextContext, loadedIssues.map(toWebIssue));
+      setPendingJoinRequests([]);
+      setWorkspaceNotice(null);
+    } catch (error) {
+      setLoadFailed(messageFromError(error));
+    }
+  }
+
+  async function submitWorkspaceAccess(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (context === null) {
+      setErrorMessage(copy.issues.contextNotReady);
+      return;
+    }
+
+    const internalNumber = corporateInternalNumber.trim();
+    if (internalNumber.length === 0) {
+      setErrorMessage(copy.workspaceAccess.internalNumberRequired);
+      return;
+    }
+
+    setRequestingWorkspaceAccess(true);
+    setWorkspaceNotice(null);
+    try {
+      const result = await api.requestWorkspaceAccess(context, { internalNumber });
+      if (result.status === "already_member") {
+        await switchWorkspace(result.workspace);
+        return;
+      }
+
+      setWorkspaceNotice(copy.workspaceAccess.requestSent(result.request.internalNumber));
+      setCorporateInternalNumber("");
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setRequestingWorkspaceAccess(false);
+    }
+  }
+
+  async function submitCorporateWorkspace(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (context === null) {
+      setErrorMessage(copy.issues.contextNotReady);
+      return;
+    }
+
+    const name = corporateWorkspaceName.trim();
+    const internalNumber = newCorporateInternalNumber.trim();
+    if (name.length < 2) {
+      setErrorMessage(copy.workspaceAccess.workspaceNameRequired);
+      return;
+    }
+
+    if (internalNumber.length === 0) {
+      setErrorMessage(copy.workspaceAccess.internalNumberRequired);
+      return;
+    }
+
+    setCreatingCorporateWorkspace(true);
+    setWorkspaceNotice(null);
+    try {
+      const workspace = await api.createCorporateWorkspace(context, { name, internalNumber });
+      const nextContext = await api.bootstrapProjectContextForWorkspace(
+        context.authSession,
+        workspace,
+      );
+      const loadedIssues = await api.listIssues(nextContext);
+      setReady(nextContext, loadedIssues.map(toWebIssue));
+      setPendingJoinRequests([]);
+      setCorporateWorkspaceName("");
+      setNewCorporateInternalNumber("");
+      setErrorMessage(null);
+      setWorkspaceNotice(
+        copy.workspaceAccess.created(workspace.internalNumber ?? internalNumber.toUpperCase()),
+      );
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setCreatingCorporateWorkspace(false);
+    }
+  }
+
+  async function approveJoinRequest(requestId: string): Promise<void> {
+    if (context === null) {
+      setErrorMessage(copy.issues.contextNotReady);
+      return;
+    }
+
+    setApprovingJoinRequestId(requestId);
+    try {
+      const workspace = await api.approveWorkspaceJoinRequest(context, requestId);
+      updateWorkspace(workspace);
+      setPendingJoinRequests((requests) => requests.filter((request) => request.id !== requestId));
+      setWorkspaceNotice(copy.workspaceAccess.approved);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setApprovingJoinRequestId(null);
     }
   }
 
@@ -499,24 +731,33 @@ export function WorkspaceShell(): ReactNode {
         : status === "auth_required"
           ? copy.connection.signIn
           : copy.connection.synced;
-  const currentWorkspaceMember =
-    context?.workspace.members.find((member) => member.userId === context.currentUser.id) ?? null;
   const canManageMembers =
-    currentWorkspaceMember?.role === "owner" || currentWorkspaceMember?.role === "admin";
+    currentWorkspaceMember?.role === "owner" ||
+    (context?.workspace.internalNumber === null && currentWorkspaceMember?.role === "admin");
+  const canApproveJoinRequests = currentWorkspaceMember?.role === "owner";
   const canWrite = currentWorkspaceMember !== null && currentWorkspaceMember.role !== "viewer";
 
   if (status === "auth_required") {
     return (
       <SignInScreen
+        authMode={authMode}
         copy={copy}
-        email={signInEmail}
+        email={authEmail}
         errorMessage={errorMessage}
-        isSigningIn={isSigningIn}
-        onEmailChange={(event) => setSignInEmail(event.target.value)}
+        isSubmitting={isSubmittingAuth}
+        notice={authNotice}
+        onEmailChange={(event) => setAuthEmail(event.target.value)}
         onLocaleToggle={toggleLocale}
-        onSubmit={(event) => void submitSignIn(event)}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setErrorMessage(null);
+          setAuthNotice(null);
+        }}
+        onPasswordChange={(event) => setAuthPassword(event.target.value)}
+        onSubmit={(event) => void submitAuth(event)}
         onThemeToggle={toggleTheme}
-        onUseDemoEmail={() => setSignInEmail(demoEmail)}
+        onUseDemoEmail={() => setAuthEmail(demoEmail)}
+        password={authPassword}
       />
     );
   }
@@ -582,6 +823,37 @@ export function WorkspaceShell(): ReactNode {
               {copy.nav.sprints}
             </button>
           </nav>
+          {context === null ? null : (
+            <>
+              <WorkspaceAccessForm
+                copy={copy}
+                internalNumber={corporateInternalNumber}
+                isRequesting={isRequestingWorkspaceAccess}
+                notice={workspaceNotice}
+                onInternalNumberChange={(event) => setCorporateInternalNumber(event.target.value)}
+                onSubmit={(event) => void submitWorkspaceAccess(event)}
+              />
+              <CorporateWorkspaceForm
+                copy={copy}
+                internalNumber={newCorporateInternalNumber}
+                isCreating={isCreatingCorporateWorkspace}
+                name={corporateWorkspaceName}
+                onInternalNumberChange={(event) =>
+                  setNewCorporateInternalNumber(event.target.value)
+                }
+                onNameChange={(event) => setCorporateWorkspaceName(event.target.value)}
+                onSubmit={(event) => void submitCorporateWorkspace(event)}
+              />
+            </>
+          )}
+          {canApproveJoinRequests && pendingJoinRequests.length > 0 ? (
+            <JoinRequestList
+              approvingRequestId={approvingJoinRequestId}
+              copy={copy}
+              onApprove={(requestId) => void approveJoinRequest(requestId)}
+              requests={pendingJoinRequests}
+            />
+          ) : null}
           {canManageMembers ? (
             <MemberForm
               copy={copy}
@@ -743,25 +1015,35 @@ function SettingsControls({
 }
 
 function SignInScreen({
+  authMode,
   copy,
   email,
   errorMessage,
-  isSigningIn,
+  isSubmitting,
+  notice,
   onLocaleToggle,
   onEmailChange,
+  onModeChange,
+  onPasswordChange,
   onSubmit,
   onThemeToggle,
   onUseDemoEmail,
+  password,
 }: {
+  readonly authMode: AuthMode;
   readonly copy: WorkspaceCopy;
   readonly email: string;
   readonly errorMessage: string | null;
-  readonly isSigningIn: boolean;
+  readonly isSubmitting: boolean;
+  readonly notice: string | null;
   readonly onEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onLocaleToggle: () => void;
+  readonly onModeChange: (mode: AuthMode) => void;
+  readonly onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   readonly onThemeToggle: () => void;
   readonly onUseDemoEmail: () => void;
+  readonly password: string;
 }): ReactNode {
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-100 px-4 text-zinc-950">
@@ -781,6 +1063,28 @@ function SignInScreen({
           />
         </div>
         <div className="space-y-3 p-4">
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-zinc-100 p-1">
+            <button
+              className={cn(
+                "h-9 rounded px-2 text-sm font-medium",
+                authMode === "login" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600",
+              )}
+              onClick={() => onModeChange("login")}
+              type="button"
+            >
+              {copy.signIn.loginTab}
+            </button>
+            <button
+              className={cn(
+                "h-9 rounded px-2 text-sm font-medium",
+                authMode === "register" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600",
+              )}
+              onClick={() => onModeChange("register")}
+              type="button"
+            >
+              {copy.signIn.registerTab}
+            </button>
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-zinc-600">
               {copy.signIn.emailLabel}
@@ -796,6 +1100,20 @@ function SignInScreen({
               value={email}
             />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-zinc-600">
+              {copy.signIn.passwordLabel}
+            </span>
+            <input
+              className="h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
+              minLength={8}
+              name="password"
+              onChange={onPasswordChange}
+              required
+              type="password"
+              value={password}
+            />
+          </label>
           <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
             <div className="text-xs font-semibold uppercase text-zinc-500">
               {copy.signIn.demoHint}
@@ -808,6 +1126,12 @@ function SignInScreen({
               {copy.signIn.useDemo}
             </button>
           </div>
+          {notice === null ? null : (
+            <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
+              <MailCheck className="mt-0.5 size-4 shrink-0" />
+              <span>{notice}</span>
+            </div>
+          )}
           {errorMessage === null ? null : (
             <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
               <AlertCircle className="size-4 shrink-0" />
@@ -817,17 +1141,19 @@ function SignInScreen({
         </div>
         <div className="flex justify-end border-t border-zinc-200 px-4 py-3">
           <Button
-            disabled={isSigningIn}
+            disabled={isSubmitting}
             leadingIcon={
-              isSigningIn ? (
+              isSubmitting ? (
                 <Loader2 className="size-4 animate-spin" />
+              ) : authMode === "register" ? (
+                <UserPlus className="size-4" />
               ) : (
-                <Radio className="size-4" />
+                <KeyRound className="size-4" />
               )
             }
             type="submit"
           >
-            {copy.signIn.submit}
+            {authMode === "register" ? copy.signIn.registerSubmit : copy.signIn.loginSubmit}
           </Button>
         </div>
       </form>
@@ -893,6 +1219,168 @@ function MemberForm({
         {copy.members.add}
       </Button>
     </form>
+  );
+}
+
+function WorkspaceAccessForm({
+  copy,
+  internalNumber,
+  isRequesting,
+  notice,
+  onInternalNumberChange,
+  onSubmit,
+}: {
+  readonly copy: WorkspaceCopy;
+  readonly internalNumber: string;
+  readonly isRequesting: boolean;
+  readonly notice: string | null;
+  readonly onInternalNumberChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <form className="mt-4 border-t border-zinc-200 pt-4" onSubmit={onSubmit}>
+      <div className="mb-2 text-xs font-semibold uppercase text-zinc-500">
+        {copy.workspaceAccess.title}
+      </div>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-zinc-600">
+          {copy.workspaceAccess.internalNumberLabel}
+        </span>
+        <input
+          className="h-9 w-full rounded-md border border-zinc-300 px-2 text-sm uppercase outline-none focus:border-zinc-950"
+          maxLength={32}
+          onChange={onInternalNumberChange}
+          placeholder={copy.workspaceAccess.internalNumberPlaceholder}
+          value={internalNumber}
+        />
+      </label>
+      {notice === null ? null : (
+        <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs leading-5 text-emerald-900">
+          {notice}
+        </div>
+      )}
+      <Button
+        className="mt-2 w-full"
+        disabled={isRequesting}
+        leadingIcon={
+          isRequesting ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Building2 className="size-4" />
+          )
+        }
+        type="submit"
+        variant="secondary"
+      >
+        {copy.workspaceAccess.request}
+      </Button>
+    </form>
+  );
+}
+
+function CorporateWorkspaceForm({
+  copy,
+  internalNumber,
+  isCreating,
+  name,
+  onInternalNumberChange,
+  onNameChange,
+  onSubmit,
+}: {
+  readonly copy: WorkspaceCopy;
+  readonly internalNumber: string;
+  readonly isCreating: boolean;
+  readonly name: string;
+  readonly onInternalNumberChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onNameChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <form className="mt-4 border-t border-zinc-200 pt-4" onSubmit={onSubmit}>
+      <div className="mb-2 text-xs font-semibold uppercase text-zinc-500">
+        {copy.workspaceAccess.createTitle}
+      </div>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-zinc-600">
+          {copy.workspaceAccess.workspaceNameLabel}
+        </span>
+        <input
+          className="h-9 w-full rounded-md border border-zinc-300 px-2 text-sm outline-none focus:border-zinc-950"
+          maxLength={120}
+          onChange={onNameChange}
+          placeholder={copy.workspaceAccess.workspaceNamePlaceholder}
+          value={name}
+        />
+      </label>
+      <label className="mt-2 block">
+        <span className="mb-1 block text-xs font-medium text-zinc-600">
+          {copy.workspaceAccess.internalNumberLabel}
+        </span>
+        <input
+          className="h-9 w-full rounded-md border border-zinc-300 px-2 text-sm uppercase outline-none focus:border-zinc-950"
+          maxLength={32}
+          onChange={onInternalNumberChange}
+          placeholder={copy.workspaceAccess.internalNumberPlaceholder}
+          value={internalNumber}
+        />
+      </label>
+      <Button
+        className="mt-2 w-full"
+        disabled={isCreating}
+        leadingIcon={
+          isCreating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />
+        }
+        type="submit"
+        variant="secondary"
+      >
+        {copy.workspaceAccess.create}
+      </Button>
+    </form>
+  );
+}
+
+function JoinRequestList({
+  approvingRequestId,
+  copy,
+  onApprove,
+  requests,
+}: {
+  readonly approvingRequestId: string | null;
+  readonly copy: WorkspaceCopy;
+  readonly onApprove: (requestId: string) => void;
+  readonly requests: ReadonlyArray<WtfWorkspaceJoinRequest>;
+}): ReactNode {
+  return (
+    <div className="mt-4 border-t border-zinc-200 pt-4">
+      <div className="mb-2 text-xs font-semibold uppercase text-zinc-500">
+        {copy.workspaceAccess.pendingTitle}
+      </div>
+      <div className="space-y-2">
+        {requests.map((request) => (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-2" key={request.id}>
+            <div className="min-w-0 text-xs">
+              <div className="truncate font-medium text-zinc-800">{request.requesterEmail}</div>
+              <div className="font-mono text-zinc-500">{request.internalNumber}</div>
+            </div>
+            <Button
+              className="mt-2 w-full"
+              disabled={approvingRequestId !== null}
+              leadingIcon={
+                approvingRequestId === request.id ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )
+              }
+              onClick={() => onApprove(request.id)}
+              variant="secondary"
+            >
+              {copy.workspaceAccess.approve}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1145,6 +1633,57 @@ function IssueComposer({
         </div>
       </form>
     </div>
+  );
+}
+
+function readStoredAuthSession(): WtfAuthSession | null {
+  const rawSession = window.localStorage.getItem(authSessionStorageKey);
+  if (rawSession === null) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawSession);
+  } catch {
+    return null;
+  }
+
+  if (!isAuthSession(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function writeStoredAuthSession(session: WtfAuthSession): void {
+  window.localStorage.setItem(authSessionStorageKey, JSON.stringify(session));
+}
+
+function clearStoredAuthSession(): void {
+  window.localStorage.removeItem(authSessionStorageKey);
+  window.localStorage.removeItem(legacyAuthEmailStorageKey);
+}
+
+function isAuthSession(value: unknown): value is WtfAuthSession {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const user = record.user;
+  if (typeof user !== "object" || user === null) {
+    return false;
+  }
+
+  const userRecord = user as Record<string, unknown>;
+  return (
+    typeof userRecord.id === "string" &&
+    typeof userRecord.email === "string" &&
+    typeof record.accessToken === "string" &&
+    typeof record.refreshToken === "string" &&
+    record.tokenType === "Bearer" &&
+    typeof record.expiresIn === "number"
   );
 }
 

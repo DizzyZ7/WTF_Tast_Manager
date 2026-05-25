@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import type { IssueRepository } from "@wtf/core";
 import type { Issue, IssueId, IssueKey, ProjectId, WorkspaceId } from "@wtf/core";
 import type { WtfDatabase } from "../connection.js";
@@ -142,6 +142,18 @@ export class PgIssueRepository implements IssueRepository {
     }
 
     return this.hydrateIssue(row);
+  }
+
+  /**
+   * Считает все issue проекта.
+   */
+  public async countByProject(projectId: ProjectId): Promise<number> {
+    const [row] = await this.db
+      .select({ value: count() })
+      .from(issues)
+      .where(eq(issues.projectId, projectId));
+
+    return row?.value ?? 0;
   }
 
   /**

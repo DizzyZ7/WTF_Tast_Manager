@@ -1,4 +1,4 @@
-import { conflict, invariantViolation } from "../../shared/domain-error.js";
+import { conflict, invalidArgument, invariantViolation } from "../../shared/domain-error.js";
 import { assertMaxLength, assertNonEmptyString } from "../../shared/guard.js";
 import { createDomainEvent, type DomainEvent } from "../events/domain-event.js";
 import type { UserId, WorkspaceId } from "../value-objects/entity-id.js";
@@ -32,6 +32,8 @@ export interface WorkspaceSnapshot {
   readonly name: string;
   /** URL-safe slug. */
   readonly slug: WorkspaceSlug;
+  /** Внутренний номер корпоративного workspace или `null` для личного. */
+  readonly internalNumber: string | null;
   /** Участники workspace. */
   readonly members: ReadonlyArray<WorkspaceMemberSnapshot>;
   /** ISO-время создания. */
@@ -48,11 +50,15 @@ export interface CreateWorkspaceInput {
   readonly name: string;
   /** Slug workspace. */
   readonly slug: string;
+  /** Внутренний номер корпоративного workspace. */
+  readonly internalNumber?: string;
   /** Первый владелец workspace. */
   readonly ownerUserId: UserId;
   /** Текущее время. */
   readonly now: Date;
 }
+
+const workspaceInternalNumberPattern = /^[A-Z0-9-]{2,32}$/;
 
 /**
  * Агрегат workspace, отвечающий за членство и роли.
@@ -64,6 +70,7 @@ export class Workspace {
     private readonly id: WorkspaceId,
     private name: string,
     private readonly slug: WorkspaceSlug,
+    private readonly internalNumber: string | null,
     private members: WorkspaceMemberSnapshot[],
     private readonly createdAt: string,
     private updatedAt: string,
@@ -78,11 +85,16 @@ export class Workspace {
       120,
       "workspace.name",
     );
+    const internalNumber =
+      input.internalNumber === undefined
+        ? null
+        : normalizeWorkspaceInternalNumber(input.internalNumber);
     const now = input.now.toISOString();
     const workspace = new Workspace(
       newEntityId<"WorkspaceId">(),
       name,
       workspaceSlug(input.slug),
+      internalNumber,
       [{ userId: input.ownerUserId, role: "owner", joinedAt: now }],
       now,
       now,
@@ -94,7 +106,13 @@ export class Workspace {
         workspaceId: workspace.id,
         aggregateId: workspace.id,
         occurredAt: input.now,
-        payload: { ownerUserId: input.ownerUserId, slug: workspace.slug },
+        payload: {
+          ownerUserId: input.ownerUserId,
+          slug: workspace.slug,
+          ...(workspace.internalNumber === null
+            ? {}
+            : { internalNumber: workspace.internalNumber }),
+        },
       }),
     );
 
@@ -109,6 +127,7 @@ export class Workspace {
       snapshot.id,
       snapshot.name,
       snapshot.slug,
+      snapshot.internalNumber,
       [...snapshot.members],
       snapshot.createdAt,
       snapshot.updatedAt,
@@ -208,6 +227,7 @@ export class Workspace {
       id: this.id,
       name: this.name,
       slug: this.slug,
+      internalNumber: this.internalNumber,
       members: [...this.members],
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
@@ -234,4 +254,16 @@ export class Workspace {
   private record(event: DomainEvent): void {
     this.events.push(event);
   }
+}
+
+function normalizeWorkspaceInternalNumber(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (!workspaceInternalNumberPattern.test(normalized)) {
+    throw invalidArgument(
+      "workspace internalNumber должен содержать 2-32 символа A-Z, 0-9 или '-'",
+      { value },
+    );
+  }
+
+  return normalized;
 }

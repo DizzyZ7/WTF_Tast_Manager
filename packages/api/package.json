@@ -34,9 +34,11 @@
     "@wtf/core": "workspace:*",
     "@wtf/db": "workspace:*",
     "fastify": "5.8.5",
+    "nodemailer": "^8.0.8",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.0",
     "@vitest/coverage-v8": "4.1.6",
     "tsx": "4.22.3"
   }

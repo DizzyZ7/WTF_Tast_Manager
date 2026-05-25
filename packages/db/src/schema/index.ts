@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   index,
   boolean,
@@ -40,17 +40,57 @@ export const activityVerbEnum = pgEnum("activity_verb", [
   "relation_added",
 ]);
 
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey(),
+    email: varchar("email", { length: 320 }).notNull(),
+    passwordHash: text("password_hash").notNull(),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [uniqueIndex("users_email_uq").on(table.email)],
+);
+
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("email_verification_tokens_hash_uq").on(table.tokenHash),
+    index("email_verification_tokens_user_idx").on(table.userId),
+  ],
+);
+
 export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").primaryKey(),
     name: varchar("name", { length: 120 }).notNull(),
     slug: varchar("slug", { length: 63 }).notNull(),
+    internalNumber: varchar("internal_number", { length: 32 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
-  (table) => [uniqueIndex("workspaces_slug_uq").on(table.slug)],
+  (table) => [
+    uniqueIndex("workspaces_slug_uq").on(table.slug),
+    uniqueIndex("workspaces_internal_number_uq").on(table.internalNumber),
+  ],
 );
+
+export const workspaceJoinRequestStatusEnum = pgEnum("workspace_join_request_status", [
+  "pending",
+  "approved",
+]);
 
 export const workspaceMembers = pgTable(
   "workspace_members",
@@ -65,6 +105,30 @@ export const workspaceMembers = pgTable(
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.userId] }),
     index("workspace_members_user_idx").on(table.userId),
+  ],
+);
+
+export const workspaceJoinRequests = pgTable(
+  "workspace_join_requests",
+  {
+    id: uuid("id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    requesterUserId: uuid("requester_user_id").notNull(),
+    requesterEmail: varchar("requester_email", { length: 320 }).notNull(),
+    internalNumber: varchar("internal_number", { length: 32 }).notNull(),
+    status: workspaceJoinRequestStatusEnum("status").notNull(),
+    decidedByUserId: uuid("decided_by_user_id"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("workspace_join_requests_workspace_idx").on(table.workspaceId),
+    index("workspace_join_requests_requester_idx").on(table.requesterUserId),
+    uniqueIndex("workspace_join_requests_pending_uq")
+      .on(table.workspaceId, table.requesterUserId)
+      .where(sql`${table.status} = 'pending'`),
   ],
 );
 
@@ -195,8 +259,27 @@ export const issueActivities = pgTable(
 
 export const workspaceRelations = relations(workspaces, ({ many }) => ({
   members: many(workspaceMembers),
+  joinRequests: many(workspaceJoinRequests),
   projects: many(projects),
   issues: many(issues),
+}));
+
+export const workspaceJoinRequestRelations = relations(workspaceJoinRequests, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspaceJoinRequests.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const userRelations = relations(users, ({ many }) => ({
+  emailVerificationTokens: many(emailVerificationTokens),
+}));
+
+export const emailVerificationTokenRelations = relations(emailVerificationTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [emailVerificationTokens.userId],
+    references: [users.id],
+  }),
 }));
 
 export const projectRelations = relations(projects, ({ one, many }) => ({

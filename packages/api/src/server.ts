@@ -1,13 +1,16 @@
 import { pathToFileURL } from "node:url";
 import {
+  PgAuthRepository,
   PgIssueRepository,
   PgProjectRepository,
+  PgWorkspaceAccessRepository,
   PgWorkspaceRepository,
   createPgPool,
   createWtfDatabase,
 } from "@wtf/db";
 import { createApiServer } from "./app.js";
 import { loadApiConfig } from "./config/env.js";
+import { createEmailSender } from "./email/sender.js";
 
 /**
  * Запускает API server с production-зависимостями.
@@ -18,6 +21,16 @@ export async function startServer(): Promise<void> {
   const db = createWtfDatabase(pool);
   const app = await createApiServer({
     config,
+    authRepository: new PgAuthRepository(db),
+    emailSender: createEmailSender({
+      smtpHost: config.SMTP_HOST,
+      smtpPort: config.SMTP_PORT,
+      smtpSecure: config.SMTP_SECURE,
+      smtpUser: config.SMTP_USER,
+      smtpPassword: config.SMTP_PASSWORD,
+      emailFrom: config.EMAIL_FROM,
+    }),
+    workspaceAccessRepository: new PgWorkspaceAccessRepository(db),
     workspaceRepository: new PgWorkspaceRepository(db),
     projectRepository: new PgProjectRepository(db),
     issueRepository: new PgIssueRepository(db),

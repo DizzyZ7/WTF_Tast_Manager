@@ -87,7 +87,7 @@ export function sortIssuesByPriority(issues: ReadonlyArray<WebIssue>): WebIssue[
       return byPriority;
     }
 
-    return left.key.localeCompare(right.key);
+    return compareIssueKeys(left.key, right.key);
   });
 }
 
@@ -108,12 +108,13 @@ export function toWebIssue(issue: WtfIssue): WebIssue {
     .filter((activity) => activity.verb === "status_changed")
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
   const lastMove = statusActivities[0] ?? null;
-  const closeActivity =
-    statusActivities.find((activity) => {
-      const to = activity.metadata.to;
+  const closeActivity = isTerminalStatus(issue.status)
+    ? (statusActivities.find((activity) => {
+        const to = activity.metadata.to;
 
-      return to === "done" || to === "canceled";
-    }) ?? null;
+        return to === "done" || to === "canceled";
+      }) ?? null)
+    : null;
 
   return {
     id: issue.id,
@@ -147,4 +148,30 @@ function activityActor(activity: WebIssueActivity): string {
   return typeof activity.metadata.actorEmail === "string"
     ? activity.metadata.actorEmail
     : activity.actorId;
+}
+
+function isTerminalStatus(status: WtfIssue["status"]): boolean {
+  return status === "done" || status === "canceled";
+}
+
+function compareIssueKeys(left: string, right: string): number {
+  const leftParts = parseIssueKey(left);
+  const rightParts = parseIssueKey(right);
+  if (leftParts !== null && rightParts !== null && leftParts.prefix === rightParts.prefix) {
+    return leftParts.sequence - rightParts.sequence;
+  }
+
+  return left.localeCompare(right);
+}
+
+function parseIssueKey(key: string): { readonly prefix: string; readonly sequence: number } | null {
+  const match = /^(?<prefix>[A-Za-z][A-Za-z0-9]*)-(?<sequence>\d+)$/.exec(key);
+  const prefix = match?.groups?.prefix;
+  const rawSequence = match?.groups?.sequence;
+  if (prefix === undefined || rawSequence === undefined) {
+    return null;
+  }
+
+  const sequence = Number.parseInt(rawSequence, 10);
+  return Number.isSafeInteger(sequence) ? { prefix, sequence } : null;
 }

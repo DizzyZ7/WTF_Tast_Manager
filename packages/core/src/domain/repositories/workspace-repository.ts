@@ -12,4 +12,6 @@ export interface WorkspaceRepository {
   findById(id: WorkspaceId): Promise<Workspace | null>;
   /** Ищет workspace по slug. */
   findBySlug(slug: WorkspaceSlug): Promise<Workspace | null>;
+  /** Ищет корпоративный workspace по внутреннему номеру. */
+  findByInternalNumber(internalNumber: string): Promise<Workspace | null>;
 }

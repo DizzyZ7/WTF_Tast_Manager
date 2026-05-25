@@ -11,6 +11,7 @@ describe("db mappers", () => {
         id: "00000000-0000-4000-8000-000000000010",
         name: "Core",
         slug: "core",
+        internalNumber: null,
         createdAt,
         updatedAt,
       },

@@ -11,6 +11,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/000-init.sql:ro
       - ./packages/db/src/migrations/0000_initial.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./packages/db/src/migrations/0001_auth.sql:/docker-entrypoint-initdb.d/002-auth.sql:ro
+      - ./packages/db/src/migrations/0002_workspace_access.sql:/docker-entrypoint-initdb.d/003-workspace-access.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -70,9 +72,16 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-at-least-32-chars}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-at-least-32-chars}
-      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:-owner@example.com,demo@wtf.local=11111111-1111-4111-8111-111111111111}
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: ${EMAIL_VERIFICATION_TOKEN_TTL_SECONDS:-86400}
+      EMAIL_VERIFICATION_BASE_URL: ${EMAIL_VERIFICATION_BASE_URL:-http://localhost:8080}
+      EMAIL_FROM: "${EMAIL_FROM:-WTF <no-reply@wtf.local>}"
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
       OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}

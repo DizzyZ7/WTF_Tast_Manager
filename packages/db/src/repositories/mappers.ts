@@ -29,12 +29,14 @@ import type {
   issueSubtasks,
   projects,
   sprints,
+  workspaceJoinRequests,
   workspaceMembers,
   workspaces,
 } from "../schema/index.js";
 
 type WorkspaceRow = typeof workspaces.$inferSelect;
 type WorkspaceMemberRow = typeof workspaceMembers.$inferSelect;
+export type WorkspaceJoinRequestRow = typeof workspaceJoinRequests.$inferSelect;
 type ProjectRow = typeof projects.$inferSelect;
 type SprintRow = typeof sprints.$inferSelect;
 type IssueRow = typeof issues.$inferSelect;
@@ -54,6 +56,7 @@ export function mapWorkspace(
     id: workspaceId(row.id),
     name: row.name,
     slug: workspaceSlug(row.slug),
+    internalNumber: row.internalNumber,
     members: members.map((member) => ({
       userId: userId(member.userId),
       role: member.role,
