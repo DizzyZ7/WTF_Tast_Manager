@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { sortIssuesByPriority, toWebIssue, type WebIssue } from "../src/components/issue-data";
+import {
+  filterIssues,
+  sortIssuesByPriority,
+  toWebIssue,
+  type WebIssue,
+} from "../src/components/issue-data";
 import type { WtfIssue } from "../src/lib/wtf-api";
 
 describe("sortIssuesByPriority", () => {
@@ -55,6 +60,68 @@ describe("sortIssuesByPriority", () => {
       "WTF-1",
       "WTF-2",
       "WTF-10",
+    ]);
+  });
+});
+
+describe("filterIssues", () => {
+  it("ищет задачи по ключу, названию, описанию и комментариям без учета регистра", () => {
+    const issues: WebIssue[] = [
+      makeWebIssue({
+        id: "1",
+        key: "WTF-1",
+        title: "Release checklist",
+        description: "Prepare billing notes",
+      }),
+      makeWebIssue({
+        id: "2",
+        key: "WTF-2",
+        title: "Customer import",
+        comments: [
+          {
+            id: "comment-1",
+            authorId: "user-1",
+            body: "CSV edge case",
+            createdAt: "2026-05-20T15:00:00.000Z",
+            updatedAt: "2026-05-20T15:00:00.000Z",
+          },
+        ],
+      }),
+    ];
+
+    expect(
+      filterIssues(issues, { mode: "all", query: "billing" }).map((issue) => issue.key),
+    ).toEqual(["WTF-1"]);
+    expect(filterIssues(issues, { mode: "all", query: "csv" }).map((issue) => issue.key)).toEqual([
+      "WTF-2",
+    ]);
+    expect(filterIssues(issues, { mode: "all", query: "wtf-2" }).map((issue) => issue.key)).toEqual(
+      ["WTF-2"],
+    );
+  });
+
+  it("фильтрует открытые, закрытые и срочные задачи", () => {
+    const issues: WebIssue[] = [
+      makeWebIssue({ id: "1", key: "WTF-1", title: "Open", status: "in_progress" }),
+      makeWebIssue({ id: "2", key: "WTF-2", title: "Done", status: "done" }),
+      makeWebIssue({
+        id: "3",
+        key: "WTF-3",
+        title: "Urgent",
+        priority: "urgent",
+        status: "todo",
+      }),
+    ];
+
+    expect(filterIssues(issues, { mode: "open", query: "" }).map((issue) => issue.key)).toEqual([
+      "WTF-1",
+      "WTF-3",
+    ]);
+    expect(filterIssues(issues, { mode: "closed", query: "" }).map((issue) => issue.key)).toEqual([
+      "WTF-2",
+    ]);
+    expect(filterIssues(issues, { mode: "urgent", query: "" }).map((issue) => issue.key)).toEqual([
+      "WTF-3",
     ]);
   });
 });

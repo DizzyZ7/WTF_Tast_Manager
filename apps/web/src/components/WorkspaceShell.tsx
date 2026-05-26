@@ -6,7 +6,11 @@ import {
   AlertCircle,
   Building2,
   Check,
+  CheckCircle2,
+  Circle,
   Columns3,
+  Copy,
+  Flame,
   KeyRound,
   Languages,
   ListFilter,
@@ -15,6 +19,8 @@ import {
   MailCheck,
   Plus,
   Radio,
+  RotateCcw,
+  Search,
   Sun,
   UserPlus,
   X,
@@ -36,7 +42,13 @@ import {
 import { calculateFlowInsights } from "./flow-insights";
 import { FlowRadar } from "./flow-radar";
 import { IssueInspector } from "./issue-inspector";
-import { sortIssuesByPriority, toWebIssue, type WebIssue } from "./issue-data";
+import {
+  filterIssues,
+  sortIssuesByPriority,
+  toWebIssue,
+  type IssueFilterMode,
+  type WebIssue,
+} from "./issue-data";
 import {
   copyByLocale,
   demoEmail,
@@ -124,6 +136,7 @@ const authSessionStorageKey = "wtf.auth.session";
 const legacyAuthEmailStorageKey = "wtf.auth.email";
 const localeStorageKey = "wtf.ui.locale";
 const themeStorageKey = "wtf.ui.theme";
+const selectedViewStorageKey = "wtf.ui.selectedView";
 
 const columnStatuses: ReadonlyArray<WebIssue["status"]> = [
   "backlog",
@@ -242,16 +255,15 @@ export function WorkspaceShell(): ReactNode {
   const updateWorkspace = useWorkspaceStore((state) => state.updateWorkspace);
   const setComposerOpen = useWorkspaceStore((state) => state.setComposerOpen);
   const setCreating = useWorkspaceStore((state) => state.setCreating);
-  const sortedIssues = useMemo(() => sortIssuesByPriority(issues), [issues]);
   const flowInsights = useMemo(() => calculateFlowInsights(issues), [issues]);
-  const selectedIssue =
-    issues.find((candidate) => candidate.id === selectedIssueId) ?? sortedIssues[0] ?? null;
   const [draft, setDraft] = useState<IssueDraft>(emptyDraft);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
   const [isSubmittingAuth, setSubmittingAuth] = useState(false);
+  const [isResendingVerification, setResendingVerification] = useState(false);
   const [movingIssueId, setMovingIssueId] = useState<string | null>(null);
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState<Exclude<WtfWorkspaceRole, "owner">>("member");
@@ -260,12 +272,16 @@ export function WorkspaceShell(): ReactNode {
   const [corporateWorkspaceName, setCorporateWorkspaceName] = useState("");
   const [newCorporateInternalNumber, setNewCorporateInternalNumber] = useState("");
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<ReadonlyArray<WtfWorkspace>>([]);
   const [isRequestingWorkspaceAccess, setRequestingWorkspaceAccess] = useState(false);
   const [isCreatingCorporateWorkspace, setCreatingCorporateWorkspace] = useState(false);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<
     ReadonlyArray<WtfWorkspaceJoinRequest>
   >([]);
   const [approvingJoinRequestId, setApprovingJoinRequestId] = useState<string | null>(null);
+  const [issueQuery, setIssueQuery] = useState("");
+  const [issueFilterMode, setIssueFilterMode] = useState<IssueFilterMode>("all");
+  const [copiedInternalNumber, setCopiedInternalNumber] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isAddingComment, setAddingComment] = useState(false);
   const [locale, setLocale] = useState<WorkspaceLocale>(initialLocale);
@@ -273,6 +289,16 @@ export function WorkspaceShell(): ReactNode {
   const copy = copyByLocale[locale];
   const currentWorkspaceMember =
     context?.workspace.members.find((member) => member.userId === context.currentUser.id) ?? null;
+  const visibleIssues = useMemo(
+    () => filterIssues(issues, { mode: issueFilterMode, query: issueQuery }),
+    [issueFilterMode, issueQuery, issues],
+  );
+  const sortedVisibleIssues = useMemo(() => sortIssuesByPriority(visibleIssues), [visibleIssues]);
+  const selectedIssue =
+    visibleIssues.find((candidate) => candidate.id === selectedIssueId) ??
+    sortedVisibleIssues[0] ??
+    null;
+  const hasIssueFilters = issueFilterMode !== "all" || issueQuery.trim().length > 0;
 
   useEffect(() => {
     const storedLocale = window.localStorage.getItem(localeStorageKey);
@@ -301,6 +327,17 @@ export function WorkspaceShell(): ReactNode {
     document.documentElement.lang = locale;
     window.localStorage.setItem(localeStorageKey, locale);
   }, [locale]);
+
+  useEffect(() => {
+    const storedView = window.localStorage.getItem(selectedViewStorageKey);
+    if (storedView === "list" || storedView === "board") {
+      setSelectedView(storedView);
+    }
+  }, [setSelectedView]);
+
+  useEffect(() => {
+    window.localStorage.setItem(selectedViewStorageKey, selectedView);
+  }, [selectedView]);
 
   useEffect(() => {
     let mounted = true;
@@ -340,7 +377,7 @@ export function WorkspaceShell(): ReactNode {
         }
       } catch (error) {
         if (mounted && error instanceof WtfApiError && error.status !== 403) {
-          setErrorMessage(messageFromError(error));
+          setErrorMessage(messageFromError(error, copy));
         }
       }
     }
@@ -367,8 +404,10 @@ export function WorkspaceShell(): ReactNode {
     try {
       const nextContext = await bootstrapContextWithRefresh(session);
       const loadedIssues = await api.listIssues(nextContext);
+      const workspaces = await api.listWorkspaces(nextContext);
       writeStoredAuthSession(nextContext.authSession);
       if (mounted) {
+        setAvailableWorkspaces(mergeWorkspaceOptions(workspaces, nextContext.workspace));
         setReady(nextContext, loadedIssues.map(toWebIssue));
         setAuthEmail(nextContext.currentUser.email);
       }
@@ -379,11 +418,11 @@ export function WorkspaceShell(): ReactNode {
 
       if (error instanceof WtfApiError && (error.status === 401 || error.status === 403)) {
         clearStoredAuthSession();
-        setAuthRequired(error.message);
+        setAuthRequired(messageFromError(error, copy));
         return;
       }
 
-      setLoadFailed(messageFromError(error));
+      setLoadFailed(messageFromError(error, copy));
     }
   }
 
@@ -410,8 +449,10 @@ export function WorkspaceShell(): ReactNode {
     try {
       const nextContext = await api.bootstrapProjectContext({ email, password });
       const loadedIssues = await api.listIssues(nextContext);
+      const workspaces = await api.listWorkspaces(nextContext);
       writeStoredAuthSession(nextContext.authSession);
       if (mounted) {
+        setAvailableWorkspaces(mergeWorkspaceOptions(workspaces, nextContext.workspace));
         setReady(nextContext, loadedIssues.map(toWebIssue));
         setAuthEmail(nextContext.currentUser.email);
         setAuthPassword("");
@@ -423,11 +464,11 @@ export function WorkspaceShell(): ReactNode {
 
       if (error instanceof WtfApiError && (error.status === 401 || error.status === 403)) {
         clearStoredAuthSession();
-        setAuthRequired(error.message);
+        setAuthRequired(messageFromError(error, copy));
         return;
       }
 
-      setLoadFailed(messageFromError(error));
+      setLoadFailed(messageFromError(error, copy));
     }
   }
 
@@ -451,16 +492,40 @@ export function WorkspaceShell(): ReactNode {
         const registeredEmail = await api.register({ email, password: authPassword });
         setAuthNotice(copy.signIn.verificationSent(registeredEmail));
         setAuthMode("login");
+        setAuthErrorCode(null);
         setAuthPassword("");
         setErrorMessage(null);
         return;
       }
 
       await loadWorkspaceForCredentials(email, authPassword, true);
+      setAuthErrorCode(null);
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setAuthErrorCode(error instanceof WtfApiError ? error.code : null);
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setSubmittingAuth(false);
+    }
+  }
+
+  async function resendVerification(): Promise<void> {
+    const email = authEmail.trim();
+    if (email.length === 0) {
+      setErrorMessage(copy.signIn.emailRequired);
+      return;
+    }
+
+    setResendingVerification(true);
+    try {
+      const sentEmail = await api.resendVerification({ email });
+      setAuthNotice(copy.signIn.verificationResent(sentEmail));
+      setAuthErrorCode(null);
+      setErrorMessage(null);
+    } catch (error) {
+      setAuthErrorCode(error instanceof WtfApiError ? error.code : null);
+      setErrorMessage(messageFromError(error, copy));
+    } finally {
+      setResendingVerification(false);
     }
   }
 
@@ -469,8 +534,25 @@ export function WorkspaceShell(): ReactNode {
     setAuthEmail("");
     setAuthPassword("");
     setAuthNotice(null);
+    setAuthErrorCode(null);
+    setAvailableWorkspaces([]);
     setAuthMode("login");
     setAuthRequired();
+  }
+
+  async function copyCurrentWorkspaceInternalNumber(): Promise<void> {
+    const internalNumber = context?.workspace.internalNumber;
+    if (internalNumber === null || internalNumber === undefined) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(internalNumber);
+      setCopiedInternalNumber(true);
+      window.setTimeout(() => setCopiedInternalNumber(false), 1600);
+    } catch {
+      setErrorMessage(copy.workspace.copyFailed);
+    }
   }
 
   async function moveIssue(issueId: string, status: WtfIssueStatus): Promise<void> {
@@ -493,7 +575,7 @@ export function WorkspaceShell(): ReactNode {
       const updated = await api.moveIssue(context, issueId, status);
       updateIssue(toWebIssue(updated));
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setMovingIssueId(null);
     }
@@ -516,9 +598,10 @@ export function WorkspaceShell(): ReactNode {
     try {
       const workspace = await api.addWorkspaceMember(context, { email, role: memberRole });
       updateWorkspace(workspace);
+      setAvailableWorkspaces((workspaces) => mergeWorkspaceOptions(workspaces, workspace));
       setMemberEmail("");
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setAddingMember(false);
     }
@@ -537,11 +620,13 @@ export function WorkspaceShell(): ReactNode {
         workspace,
       );
       const loadedIssues = await api.listIssues(nextContext);
+      const workspaces = await api.listWorkspaces(nextContext);
+      setAvailableWorkspaces(mergeWorkspaceOptions(workspaces, nextContext.workspace));
       setReady(nextContext, loadedIssues.map(toWebIssue));
       setPendingJoinRequests([]);
       setWorkspaceNotice(null);
     } catch (error) {
-      setLoadFailed(messageFromError(error));
+      setLoadFailed(messageFromError(error, copy));
     }
   }
 
@@ -571,7 +656,7 @@ export function WorkspaceShell(): ReactNode {
       setCorporateInternalNumber("");
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setRequestingWorkspaceAccess(false);
     }
@@ -605,6 +690,8 @@ export function WorkspaceShell(): ReactNode {
         workspace,
       );
       const loadedIssues = await api.listIssues(nextContext);
+      const workspaces = await api.listWorkspaces(nextContext);
+      setAvailableWorkspaces(mergeWorkspaceOptions(workspaces, nextContext.workspace));
       setReady(nextContext, loadedIssues.map(toWebIssue));
       setPendingJoinRequests([]);
       setCorporateWorkspaceName("");
@@ -614,7 +701,7 @@ export function WorkspaceShell(): ReactNode {
         copy.workspaceAccess.created(workspace.internalNumber ?? internalNumber.toUpperCase()),
       );
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setCreatingCorporateWorkspace(false);
     }
@@ -630,10 +717,11 @@ export function WorkspaceShell(): ReactNode {
     try {
       const workspace = await api.approveWorkspaceJoinRequest(context, requestId);
       updateWorkspace(workspace);
+      setAvailableWorkspaces((workspaces) => mergeWorkspaceOptions(workspaces, workspace));
       setPendingJoinRequests((requests) => requests.filter((request) => request.id !== requestId));
       setWorkspaceNotice(copy.workspaceAccess.approved);
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setApprovingJoinRequestId(null);
     }
@@ -668,7 +756,7 @@ export function WorkspaceShell(): ReactNode {
       setDraft(emptyDraft);
       setComposerOpen(false);
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setCreating(false);
     }
@@ -698,7 +786,7 @@ export function WorkspaceShell(): ReactNode {
       setSelectedIssueId(issue.id);
       setCommentDraft("");
     } catch (error) {
-      setErrorMessage(messageFromError(error));
+      setErrorMessage(messageFromError(error, copy));
     } finally {
       setAddingComment(false);
     }
@@ -712,6 +800,16 @@ export function WorkspaceShell(): ReactNode {
   function updatePriority(event: ChangeEvent<HTMLSelectElement>): void {
     const priority = priorityOptions.find((option) => option === event.target.value) ?? "medium";
     setDraft((current) => ({ ...current, priority }));
+  }
+
+  function updateAuthEmail(event: ChangeEvent<HTMLInputElement>): void {
+    setAuthEmail(event.target.value);
+    setAuthErrorCode(null);
+  }
+
+  function clearIssueFilters(): void {
+    setIssueQuery("");
+    setIssueFilterMode("all");
   }
 
   function toggleLocale(): void {
@@ -741,22 +839,29 @@ export function WorkspaceShell(): ReactNode {
     return (
       <SignInScreen
         authMode={authMode}
+        canResendVerification={authMode === "login" && authErrorCode === "email_not_verified"}
         copy={copy}
         email={authEmail}
         errorMessage={errorMessage}
+        isResendingVerification={isResendingVerification}
         isSubmitting={isSubmittingAuth}
         notice={authNotice}
-        onEmailChange={(event) => setAuthEmail(event.target.value)}
+        onEmailChange={updateAuthEmail}
         onLocaleToggle={toggleLocale}
         onModeChange={(mode) => {
           setAuthMode(mode);
+          setAuthErrorCode(null);
           setErrorMessage(null);
           setAuthNotice(null);
         }}
         onPasswordChange={(event) => setAuthPassword(event.target.value)}
+        onResendVerification={() => void resendVerification()}
         onSubmit={(event) => void submitAuth(event)}
         onThemeToggle={toggleTheme}
-        onUseDemoEmail={() => setAuthEmail(demoEmail)}
+        onUseDemoEmail={() => {
+          setAuthEmail(demoEmail);
+          setAuthErrorCode(null);
+        }}
         password={authPassword}
       />
     );
@@ -815,14 +920,25 @@ export function WorkspaceShell(): ReactNode {
               <Activity className="size-4" />
               {copy.nav.issues}
             </button>
-            <button
-              className="flex h-9 items-center gap-2 rounded px-2 text-left text-sm text-zinc-600 md:w-full"
-              type="button"
-            >
-              <Columns3 className="size-4" />
-              {copy.nav.sprints}
-            </button>
           </nav>
+          {context === null ? null : (
+            <WorkspaceSummary
+              copy={copy}
+              isCopied={copiedInternalNumber}
+              member={currentWorkspaceMember}
+              onCopyInternalNumber={() => void copyCurrentWorkspaceInternalNumber()}
+              workspace={context.workspace}
+            />
+          )}
+          {context === null ? null : (
+            <WorkspaceSwitcher
+              activeWorkspaceId={context.workspace.id}
+              copy={copy}
+              isSwitching={status === "loading"}
+              onSwitch={(workspace) => void switchWorkspace(workspace)}
+              workspaces={availableWorkspaces}
+            />
+          )}
           {context === null ? null : (
             <>
               <WorkspaceAccessForm
@@ -885,7 +1001,11 @@ export function WorkspaceShell(): ReactNode {
             <div>
               <h2 className="text-lg font-semibold">{copy.issues.title}</h2>
               <p className="text-sm text-zinc-500">
-                {status === "loading" ? copy.issues.loading : copy.issues.count(issues.length)}
+                {status === "loading"
+                  ? copy.issues.loading
+                  : hasIssueFilters
+                    ? copy.issues.filteredCount(visibleIssues.length, issues.length)
+                    : copy.issues.count(issues.length)}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -906,6 +1026,16 @@ export function WorkspaceShell(): ReactNode {
             </div>
           </div>
 
+          <IssueFilterBar
+            copy={copy}
+            mode={issueFilterMode}
+            onClear={clearIssueFilters}
+            onModeChange={setIssueFilterMode}
+            onQueryChange={(event) => setIssueQuery(event.target.value)}
+            query={issueQuery}
+            showClear={hasIssueFilters}
+          />
+
           {errorMessage !== null ? (
             <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               <div className="flex min-w-0 items-center gap-2">
@@ -917,6 +1047,16 @@ export function WorkspaceShell(): ReactNode {
                   {copy.issues.retry}
                 </Button>
               ) : null}
+              {status !== "failed" ? (
+                <Button
+                  aria-label={copy.issues.dismissError}
+                  className="size-8 shrink-0 px-0"
+                  leadingIcon={<X className="size-4" />}
+                  onClick={() => setErrorMessage(null)}
+                  title={copy.issues.dismissError}
+                  variant="ghost"
+                />
+              ) : null}
             </div>
           ) : null}
 
@@ -925,11 +1065,19 @@ export function WorkspaceShell(): ReactNode {
               <Loader2 className="mr-2 size-4 animate-spin" />
               {copy.issues.loading}
             </div>
+          ) : visibleIssues.length === 0 ? (
+            <IssueEmptyState
+              canCreate={canWrite && !hasIssueFilters}
+              copy={copy}
+              isFiltered={hasIssueFilters}
+              onClearFilters={clearIssueFilters}
+              onCreate={() => setComposerOpen(true)}
+            />
           ) : selectedView === "list" ? (
             <IssueList
               canCreate={canWrite}
               copy={copy}
-              issues={sortedIssues}
+              issues={sortedVisibleIssues}
               onCreate={() => setComposerOpen(true)}
               onSelectIssue={setSelectedIssueId}
               selectedIssueId={selectedIssue?.id ?? null}
@@ -938,7 +1086,7 @@ export function WorkspaceShell(): ReactNode {
             <IssueBoard
               canMove={canWrite}
               copy={copy}
-              issues={issues}
+              issues={visibleIssues}
               movingIssueId={movingIssueId}
               onMoveIssue={(issueId, nextStatus) => void moveIssue(issueId, nextStatus)}
               onSelectIssue={setSelectedIssueId}
@@ -1016,30 +1164,36 @@ function SettingsControls({
 
 function SignInScreen({
   authMode,
+  canResendVerification,
   copy,
   email,
   errorMessage,
+  isResendingVerification,
   isSubmitting,
   notice,
   onLocaleToggle,
   onEmailChange,
   onModeChange,
   onPasswordChange,
+  onResendVerification,
   onSubmit,
   onThemeToggle,
   onUseDemoEmail,
   password,
 }: {
   readonly authMode: AuthMode;
+  readonly canResendVerification: boolean;
   readonly copy: WorkspaceCopy;
   readonly email: string;
   readonly errorMessage: string | null;
+  readonly isResendingVerification: boolean;
   readonly isSubmitting: boolean;
   readonly notice: string | null;
   readonly onEmailChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onLocaleToggle: () => void;
   readonly onModeChange: (mode: AuthMode) => void;
   readonly onPasswordChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onResendVerification: () => void;
   readonly onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   readonly onThemeToggle: () => void;
   readonly onUseDemoEmail: () => void;
@@ -1091,6 +1245,7 @@ function SignInScreen({
             </span>
             <input
               autoFocus
+              autoComplete="email"
               className="h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
               name="email"
               onChange={onEmailChange}
@@ -1105,6 +1260,7 @@ function SignInScreen({
               {copy.signIn.passwordLabel}
             </span>
             <input
+              autoComplete={authMode === "register" ? "new-password" : "current-password"}
               className="h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
               minLength={8}
               name="password"
@@ -1133,9 +1289,28 @@ function SignInScreen({
             </div>
           )}
           {errorMessage === null ? null : (
-            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-              <AlertCircle className="size-4 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="size-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+              {canResendVerification ? (
+                <Button
+                  className="mt-2 h-8"
+                  disabled={isResendingVerification || isSubmitting}
+                  leadingIcon={
+                    isResendingVerification ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <MailCheck className="size-4" />
+                    )
+                  }
+                  onClick={onResendVerification}
+                  variant="secondary"
+                >
+                  {copy.signIn.resendVerification}
+                </Button>
+              ) : null}
             </div>
           )}
         </div>
@@ -1219,6 +1394,123 @@ function MemberForm({
         {copy.members.add}
       </Button>
     </form>
+  );
+}
+
+function WorkspaceSummary({
+  copy,
+  isCopied,
+  member,
+  onCopyInternalNumber,
+  workspace,
+}: {
+  readonly copy: WorkspaceCopy;
+  readonly isCopied: boolean;
+  readonly member: WtfWorkspace["members"][number] | null;
+  readonly onCopyInternalNumber: () => void;
+  readonly workspace: WtfWorkspace;
+}): ReactNode {
+  return (
+    <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-zinc-950">{workspace.name}</div>
+          <div className="text-xs text-zinc-500">
+            {workspace.internalNumber === null ? copy.workspace.personal : copy.workspace.corporate}
+          </div>
+        </div>
+        {member === null ? null : (
+          <Badge tone={member.role === "owner" ? "green" : "neutral"}>
+            {copy.roleLabels[member.role]}
+          </Badge>
+        )}
+      </div>
+      {workspace.internalNumber === null ? null : (
+        <div className="flex items-center gap-2 rounded border border-zinc-200 bg-white px-2 py-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium uppercase text-zinc-500">
+              {copy.workspace.internalNumber}
+            </div>
+            <div className="truncate font-mono text-sm text-zinc-950">
+              {workspace.internalNumber}
+            </div>
+          </div>
+          <Button
+            aria-label={copy.workspace.copyInternalNumber}
+            className="size-8 shrink-0 px-0"
+            leadingIcon={isCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            onClick={onCopyInternalNumber}
+            title={copy.workspace.copyInternalNumber}
+            variant="ghost"
+          />
+        </div>
+      )}
+      {isCopied && workspace.internalNumber !== null ? (
+        <div className="mt-2 text-xs text-emerald-700">
+          {copy.workspace.copied(workspace.internalNumber)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkspaceSwitcher({
+  activeWorkspaceId,
+  copy,
+  isSwitching,
+  onSwitch,
+  workspaces,
+}: {
+  readonly activeWorkspaceId: string;
+  readonly copy: WorkspaceCopy;
+  readonly isSwitching: boolean;
+  readonly onSwitch: (workspace: WtfWorkspace) => void;
+  readonly workspaces: ReadonlyArray<WtfWorkspace>;
+}): ReactNode {
+  if (workspaces.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 border-t border-zinc-200 pt-4">
+      <div className="mb-2 text-xs font-semibold uppercase text-zinc-500">
+        {copy.workspace.switcherTitle}
+      </div>
+      <div className="space-y-1">
+        {workspaces.map((workspace) => {
+          const isActive = workspace.id === activeWorkspaceId;
+
+          return (
+            <button
+              className={cn(
+                "flex min-h-10 w-full items-center gap-2 rounded px-2 text-left text-sm transition-colors",
+                isActive
+                  ? "bg-zinc-950 text-white"
+                  : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950",
+              )}
+              disabled={isSwitching || isActive}
+              key={workspace.id}
+              onClick={() => onSwitch(workspace)}
+              type="button"
+            >
+              <Building2 className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{workspace.name}</span>
+                <span
+                  className={cn(
+                    "block truncate text-xs",
+                    isActive ? "text-zinc-200" : "text-zinc-500",
+                  )}
+                >
+                  {workspace.internalNumber ?? copy.workspace.personal}
+                </span>
+              </span>
+              {isActive ? <Check className="size-4 shrink-0" /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1384,6 +1676,104 @@ function JoinRequestList({
   );
 }
 
+function IssueFilterBar({
+  copy,
+  mode,
+  onClear,
+  onModeChange,
+  onQueryChange,
+  query,
+  showClear,
+}: {
+  readonly copy: WorkspaceCopy;
+  readonly mode: IssueFilterMode;
+  readonly onClear: () => void;
+  readonly onModeChange: (mode: IssueFilterMode) => void;
+  readonly onQueryChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly query: string;
+  readonly showClear: boolean;
+}): ReactNode {
+  const filters: ReadonlyArray<{
+    readonly icon: ReactNode;
+    readonly label: string;
+    readonly mode: IssueFilterMode;
+  }> = [
+    { icon: <ListFilter className="size-4" />, label: copy.issues.filters.all, mode: "all" },
+    { icon: <Circle className="size-4" />, label: copy.issues.filters.open, mode: "open" },
+    {
+      icon: <CheckCircle2 className="size-4" />,
+      label: copy.issues.filters.closed,
+      mode: "closed",
+    },
+    { icon: <Flame className="size-4" />, label: copy.issues.filters.urgent, mode: "urgent" },
+  ];
+
+  return (
+    <div className="mb-4 flex flex-col gap-2 rounded-md border border-zinc-200 bg-white p-2 lg:flex-row lg:items-center">
+      <label className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+        <input
+          aria-label={copy.issues.searchLabel}
+          className="h-9 w-full rounded-md border border-zinc-300 px-3 pl-9 text-sm outline-none focus:border-zinc-950"
+          maxLength={120}
+          onChange={onQueryChange}
+          placeholder={copy.issues.searchPlaceholder}
+          value={query}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        {filters.map((filter) => (
+          <Button
+            className="h-9"
+            key={filter.mode}
+            leadingIcon={filter.icon}
+            onClick={() => onModeChange(filter.mode)}
+            variant={mode === filter.mode ? "secondary" : "ghost"}
+          >
+            {filter.label}
+          </Button>
+        ))}
+        {showClear ? (
+          <Button leadingIcon={<RotateCcw className="size-4" />} onClick={onClear} variant="ghost">
+            {copy.issues.clearFilters}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function IssueEmptyState({
+  canCreate,
+  copy,
+  isFiltered,
+  onClearFilters,
+  onCreate,
+}: {
+  readonly canCreate: boolean;
+  readonly copy: WorkspaceCopy;
+  readonly isFiltered: boolean;
+  readonly onClearFilters: () => void;
+  readonly onCreate: () => void;
+}): ReactNode {
+  return (
+    <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-md border border-zinc-200 bg-white text-sm text-zinc-500">
+      <span className="font-medium text-zinc-700">
+        {isFiltered ? copy.issues.noMatches : copy.issues.empty}
+      </span>
+      {isFiltered ? (
+        <Button leadingIcon={<RotateCcw className="size-4" />} onClick={onClearFilters}>
+          {copy.issues.clearFilters}
+        </Button>
+      ) : (
+        <Button disabled={!canCreate} leadingIcon={<Plus className="size-4" />} onClick={onCreate}>
+          {copy.header.issue}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function IssueList({
   canCreate,
   copy,
@@ -1466,7 +1856,9 @@ function IssueBoard({
     <div className="overflow-x-auto">
       <div className="grid min-w-[1120px] grid-cols-6 gap-3">
         {columnStatuses.map((status) => {
-          const columnIssues = issues.filter((issue) => issue.status === status);
+          const columnIssues = sortIssuesByPriority(
+            issues.filter((issue) => issue.status === status),
+          );
 
           return (
             <div
@@ -1665,6 +2057,31 @@ function clearStoredAuthSession(): void {
   window.localStorage.removeItem(legacyAuthEmailStorageKey);
 }
 
+function mergeWorkspaceOptions(
+  workspaces: ReadonlyArray<WtfWorkspace>,
+  activeWorkspace: WtfWorkspace,
+): ReadonlyArray<WtfWorkspace> {
+  const byId = new Map<string, WtfWorkspace>();
+  for (const workspace of workspaces) {
+    byId.set(workspace.id, workspace);
+  }
+  byId.set(activeWorkspace.id, activeWorkspace);
+
+  return [...byId.values()].sort(compareWorkspaceOptions);
+}
+
+function compareWorkspaceOptions(left: WtfWorkspace, right: WtfWorkspace): number {
+  if (left.internalNumber === null && right.internalNumber !== null) {
+    return -1;
+  }
+
+  if (left.internalNumber !== null && right.internalNumber === null) {
+    return 1;
+  }
+
+  return left.name.localeCompare(right.name);
+}
+
 function isAuthSession(value: unknown): value is WtfAuthSession {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -1687,10 +2104,11 @@ function isAuthSession(value: unknown): value is WtfAuthSession {
   );
 }
 
-function messageFromError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+function messageFromError(error: unknown, copy: WorkspaceCopy): string {
+  if (error instanceof WtfApiError) {
+    const messagesByCode: Readonly<Record<string, string>> = copy.errors.byCode;
+    return messagesByCode[error.code] ?? error.message;
   }
 
-  return "Unexpected application error";
+  return copy.errors.unexpected;
 }

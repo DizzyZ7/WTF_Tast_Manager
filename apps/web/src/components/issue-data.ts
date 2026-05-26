@@ -70,12 +70,46 @@ export interface WebIssue {
   readonly updatedAt: string;
 }
 
+/**
+ * Быстрый фильтр списка issue.
+ */
+export type IssueFilterMode = "all" | "open" | "closed" | "urgent";
+
+/**
+ * Параметры фильтра issue в web-представлении.
+ */
+export interface IssueFilterInput {
+  /** Поисковая строка. */
+  readonly query: string;
+  /** Быстрый режим фильтра. */
+  readonly mode: IssueFilterMode;
+}
+
 const priorityWeight: Record<WebIssue["priority"], number> = {
   urgent: 4,
   high: 3,
   medium: 2,
   low: 1,
 };
+
+/**
+ * Фильтрует issue по быстрому режиму и поисковой строке.
+ */
+export function filterIssues(issues: ReadonlyArray<WebIssue>, input: IssueFilterInput): WebIssue[] {
+  const query = normalizeSearchQuery(input.query);
+
+  return issues.filter((issue) => {
+    if (!matchesIssueFilterMode(issue, input.mode)) {
+      return false;
+    }
+
+    if (query.length === 0) {
+      return true;
+    }
+
+    return issueSearchText(issue).includes(query);
+  });
+}
 
 /**
  * Сортирует issue по приоритету и ключу.
@@ -152,6 +186,36 @@ function activityActor(activity: WebIssueActivity): string {
 
 function isTerminalStatus(status: WtfIssue["status"]): boolean {
   return status === "done" || status === "canceled";
+}
+
+function matchesIssueFilterMode(issue: WebIssue, mode: IssueFilterMode): boolean {
+  switch (mode) {
+    case "all":
+      return true;
+    case "open":
+      return !isTerminalStatus(issue.status);
+    case "closed":
+      return isTerminalStatus(issue.status);
+    case "urgent":
+      return issue.priority === "urgent";
+  }
+}
+
+function normalizeSearchQuery(query: string): string {
+  return query.trim().toLowerCase();
+}
+
+function issueSearchText(issue: WebIssue): string {
+  return [
+    issue.key,
+    issue.title,
+    issue.description,
+    issue.status,
+    issue.priority,
+    ...issue.comments.map((comment) => comment.body),
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 function compareIssueKeys(left: string, right: string): number {

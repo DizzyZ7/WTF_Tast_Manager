@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { WorkspaceRepository } from "@wtf/core";
-import type { Workspace, WorkspaceId, WorkspaceSlug } from "@wtf/core";
+import type { UserId, Workspace, WorkspaceId, WorkspaceSlug } from "@wtf/core";
 import type { WtfDatabase } from "../connection.js";
 import { workspaceMembers, workspaces } from "../schema/index.js";
 import { mapWorkspace } from "./mappers.js";
@@ -106,4 +106,30 @@ export class PgWorkspaceRepository implements WorkspaceRepository {
       .where(eq(workspaceMembers.workspaceId, row.id));
     return mapWorkspace(row, members);
   }
+
+  /**
+   * Возвращает workspace, где пользователь является участником.
+   */
+  public async listByUserId(userId: UserId): Promise<ReadonlyArray<Workspace>> {
+    const rows = await this.db
+      .select({ workspace: workspaces })
+      .from(workspaceMembers)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+      .where(eq(workspaceMembers.userId, userId));
+
+    const result: Workspace[] = [];
+    for (const row of rows) {
+      const members = await this.db
+        .select()
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, row.workspace.id));
+      result.push(mapWorkspace(row.workspace, members));
+    }
+
+    return result.sort((left, right) => compareWorkspaceNames(left, right));
+  }
+}
+
+function compareWorkspaceNames(left: Workspace, right: Workspace): number {
+  return left.toSnapshot().name.localeCompare(right.toSnapshot().name);
 }

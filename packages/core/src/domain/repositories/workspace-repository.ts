@@ -1,5 +1,5 @@
 import type { Workspace } from "../entities/workspace.js";
-import type { WorkspaceId } from "../value-objects/entity-id.js";
+import type { UserId, WorkspaceId } from "../value-objects/entity-id.js";
 import type { WorkspaceSlug } from "../value-objects/workspace-slug.js";
 
 /**
@@ -14,4 +14,6 @@ export interface WorkspaceRepository {
   findBySlug(slug: WorkspaceSlug): Promise<Workspace | null>;
   /** Ищет корпоративный workspace по внутреннему номеру. */
   findByInternalNumber(internalNumber: string): Promise<Workspace | null>;
+  /** Возвращает workspace, где пользователь является участником. */
+  listByUserId(userId: UserId): Promise<ReadonlyArray<Workspace>>;
 }

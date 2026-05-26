@@ -27,8 +27,10 @@ Swagger UI доступен по `/documentation`, OpenAPI-контракт хр
 
 - `POST /v1/auth/register` - создать учетку и отправить письмо подтверждения email.
 - `GET /v1/auth/verify-email?token=...` - подтвердить email по кнопке из письма.
+- `POST /v1/auth/resend-verification` - повторно отправить письмо подтверждения для неподтвержденной учетки.
 - `POST /v1/auth/login` - войти по email и паролю, выпустить JWT pair.
 - `POST /v1/auth/refresh` - обновить JWT pair по refresh token.
+- `GET /v1/workspaces` - список workspace, где текущий пользователь является участником.
 - `GET /v1/workspaces/by-slug/{slug}` - поиск workspace для идемпотентной загрузки web-клиента.
 - `POST /v1/workspaces/join-requests` - запросить доступ к корпоративному workspace по внутреннему номеру.
 - `GET /v1/workspaces/{workspaceId}/join-requests` - pending-заявки доступа для владельца.

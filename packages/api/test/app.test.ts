@@ -55,6 +55,16 @@ class InMemoryWorkspaceRepository implements WorkspaceRepository {
       ) ?? null,
     );
   }
+
+  public listByUserId(userId: string): Promise<ReadonlyArray<Workspace>> {
+    return Promise.resolve(
+      [...this.rows.values()]
+        .filter((workspace) =>
+          workspace.toSnapshot().members.some((member) => member.userId === userId),
+        )
+        .sort((left, right) => left.toSnapshot().name.localeCompare(right.toSnapshot().name)),
+    );
+  }
 }
 
 class InMemoryProjectRepository implements ProjectRepository {
@@ -457,6 +467,16 @@ describe("createApiServer", () => {
     expect(workspaceLookupResponse.statusCode).toBe(200);
     expect(workspaceLookupResponse.json<{ id: string }>().id).toBe(workspace.id);
 
+    const workspacesResponse = await app.inject({
+      method: "GET",
+      url: "/v1/workspaces",
+      headers,
+    });
+    expect(workspacesResponse.statusCode).toBe(200);
+    expect(workspacesResponse.json<{ workspaces: Array<{ id: string }> }>().workspaces).toEqual([
+      expect.objectContaining({ id: workspace.id }),
+    ]);
+
     const projectResponse = await app.inject({
       method: "POST",
       url: `/v1/workspaces/${workspace.id}/projects`,
@@ -509,6 +529,49 @@ describe("createApiServer", () => {
     });
     expect(cancelResponse.statusCode).toBe(200);
     expect(cancelResponse.json<{ status: string }>().status).toBe("canceled");
+  });
+
+  it("отдает пользователю только workspace, где он является участником", async () => {
+    await registerAndVerify("owner@example.com");
+    await registerAndVerify("worker@example.com");
+    const ownerHeaders = {
+      authorization: `Bearer ${(await login("owner@example.com")).accessToken}`,
+    };
+    const workerHeaders = {
+      authorization: `Bearer ${(await login("worker@example.com")).accessToken}`,
+    };
+
+    const ownerWorkspaceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/workspaces",
+      headers: ownerHeaders,
+      payload: { name: "Owner Space", slug: "owner-space" },
+    });
+    const ownerWorkspace = ownerWorkspaceResponse.json<{ id: string }>();
+
+    const workerWorkspaceResponse = await app.inject({
+      method: "POST",
+      url: "/v1/workspaces",
+      headers: workerHeaders,
+      payload: { name: "Worker Space", slug: "worker-space" },
+    });
+    const workerWorkspace = workerWorkspaceResponse.json<{ id: string }>();
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/v1/workspaces",
+      headers: ownerHeaders,
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<{ workspaces: Array<{ id: string }> }>().workspaces).toEqual([
+      expect.objectContaining({ id: ownerWorkspace.id }),
+    ]);
+    expect(
+      listResponse
+        .json<{ workspaces: Array<{ id: string }> }>()
+        .workspaces.some((workspace) => workspace.id === workerWorkspace.id),
+    ).toBe(false);
   });
 
   it("разрешает перенос задачи только участнику и пишет кто перенес", async () => {
@@ -791,6 +854,40 @@ describe("createApiServer", () => {
 
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe("email_not_verified");
+  });
+
+  it("повторно отправляет письмо подтверждения для неподтвержденной учетной записи", async () => {
+    const registerResponse = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: { email: "Owner@Example.com", password: "password123" },
+    });
+    expect(registerResponse.statusCode).toBe(202);
+    expect(
+      emailSender.messages.filter((message) => message.to === "owner@example.com"),
+    ).toHaveLength(1);
+
+    const resendResponse = await app.inject({
+      method: "POST",
+      url: "/v1/auth/resend-verification",
+      payload: { email: "owner@example.com" },
+    });
+    expect(resendResponse.statusCode).toBe(202);
+    expect(resendResponse.json<{ email: string }>().email).toBe("owner@example.com");
+    expect(
+      emailSender.messages.filter((message) => message.to === "owner@example.com"),
+    ).toHaveLength(2);
+
+    const verifyResponse = await app.inject({
+      method: "GET",
+      url: `/v1/auth/verify-email?token=${emailSender.verificationTokenFor("owner@example.com")}`,
+    });
+    expect(verifyResponse.statusCode).toBe(200);
+
+    const tokenPair = await login("owner@example.com");
+    expect(tokenPair.user.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it("валидирует OAuth provider", async () => {

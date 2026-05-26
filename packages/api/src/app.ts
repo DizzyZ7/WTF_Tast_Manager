@@ -49,6 +49,7 @@ import {
   parseQuery,
   refreshRequestSchema,
   registerRequestSchema,
+  resendVerificationRequestSchema,
   requestWorkspaceAccessSchema,
   updateIssueStatusSchema,
   uuidSchema,
@@ -231,24 +232,20 @@ export async function createApiServer(dependencies: ApiDependencies): Promise<Fa
       };
     }
 
-    const verification = createEmailVerificationToken(
-      currentTime,
-      dependencies.config.EMAIL_VERIFICATION_TOKEN_TTL_SECONDS,
-    );
-    await dependencies.authRepository.createEmailVerificationToken({
-      id: crypto.randomUUID(),
-      userId: user.id,
-      tokenHash: verification.tokenHash,
-      expiresAt: verification.expiresAt,
-      createdAt: currentTime,
-    });
-    await dependencies.emailSender.sendEmailVerification({
-      to: user.email,
-      verificationUrl: buildEmailVerificationUrl(dependencies.config, verification.token),
-      expiresAt: verification.expiresAt,
-    });
+    await sendEmailVerification(dependencies, user, currentTime);
 
     return reply.code(202).send({ status: "verification_sent", email: user.email });
+  });
+
+  app.post("/v1/auth/resend-verification", async (request, reply) => {
+    const input = parseBody(resendVerificationRequestSchema, request.body);
+    const email = normalizeEmail(input.email);
+    const user = await dependencies.authRepository.findUserByEmail(email);
+    if (user !== null && !isVerifiedUser(user)) {
+      await sendEmailVerification(dependencies, user, now());
+    }
+
+    return reply.code(202).send({ status: "verification_sent", email });
   });
 
   app.get("/v1/auth/verify-email", async (request, reply) => {
@@ -337,6 +334,14 @@ export async function createApiServer(dependencies: ApiDependencies): Promise<Fa
       crypto.randomUUID(),
     );
     return reply.send({ url });
+  });
+
+  app.get("/v1/workspaces", async (request, reply) => {
+    const currentUser = requireAuthenticatedUser(request);
+    const workspaces = await dependencies.workspaceRepository.listByUserId(
+      userId(currentUser.userId),
+    );
+    return reply.send({ workspaces: workspaces.map((workspace) => workspace.toSnapshot()) });
   });
 
   app.post("/v1/workspaces", async (request, reply) => {
@@ -670,6 +675,29 @@ function shouldRegisterDocumentation(config: ApiConfig): boolean {
   return config.NODE_ENV !== "test";
 }
 
+async function sendEmailVerification(
+  dependencies: ApiDependencies,
+  user: AuthUserRecord,
+  currentTime: Date,
+): Promise<void> {
+  const verification = createEmailVerificationToken(
+    currentTime,
+    dependencies.config.EMAIL_VERIFICATION_TOKEN_TTL_SECONDS,
+  );
+  await dependencies.authRepository.createEmailVerificationToken({
+    id: crypto.randomUUID(),
+    userId: user.id,
+    tokenHash: verification.tokenHash,
+    expiresAt: verification.expiresAt,
+    createdAt: currentTime,
+  });
+  await dependencies.emailSender.sendEmailVerification({
+    to: user.email,
+    verificationUrl: buildEmailVerificationUrl(dependencies.config, verification.token),
+    expiresAt: verification.expiresAt,
+  });
+}
+
 function requireVerifiedUser(user: AuthUserRecord): void {
   if (user.emailVerifiedAt === null) {
     throw new HttpError(403, "email не подтвержден", "email_not_verified", {
@@ -822,6 +850,7 @@ function isPublicRoute(request: FastifyRequest): boolean {
   return (
     path === "/health" ||
     path === "/v1/auth/register" ||
+    path === "/v1/auth/resend-verification" ||
     path === "/v1/auth/login" ||
     path === "/v1/auth/token" ||
     path === "/v1/auth/refresh" ||

@@ -42,6 +42,10 @@ const workspaceSchema = z.object({
   updatedAt: z.string(),
 });
 
+const workspaceListSchema = z.object({
+  workspaces: z.array(workspaceSchema),
+});
+
 const projectSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),
@@ -264,6 +268,14 @@ export interface RegisterInput {
 }
 
 /**
+ * Данные для повторной отправки письма подтверждения.
+ */
+export interface ResendVerificationInput {
+  /** Email учетной записи. */
+  readonly email: string;
+}
+
+/**
  * Ошибка HTTP API с кодом и статусом.
  */
 export class WtfApiError extends Error {
@@ -338,6 +350,19 @@ export class WtfApiClient {
   }
 
   /**
+   * Повторно отправляет письмо подтверждения email, если учетная запись еще не подтверждена.
+   */
+  public async resendVerification(input: ResendVerificationInput): Promise<string> {
+    const response = await this.request("/v1/auth/resend-verification", {
+      method: "POST",
+      schema: registrationResponseSchema,
+      body: { email: input.email },
+    });
+
+    return response.email;
+  }
+
+  /**
    * Обновляет browser-сессию по refresh token.
    */
   public async refreshSession(refreshToken: string): Promise<WtfAuthSession> {
@@ -383,6 +408,18 @@ export class WtfApiClient {
       workspace,
       project,
     };
+  }
+
+  /**
+   * Возвращает workspace, доступные текущему пользователю.
+   */
+  public async listWorkspaces(context: WtfProjectContext): Promise<ReadonlyArray<WtfWorkspace>> {
+    const payload = await this.request("/v1/workspaces", {
+      method: "GET",
+      token: context.accessToken,
+      schema: workspaceListSchema,
+    });
+    return payload.workspaces;
   }
 
   /**

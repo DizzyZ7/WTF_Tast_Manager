@@ -19,6 +19,9 @@ export const loginRequestSchema = z.object({
   password: passwordSchema,
 });
 export const tokenRequestSchema = loginRequestSchema;
+export const resendVerificationRequestSchema = z.object({
+  email: z.email(),
+});
 export const verifyEmailQuerySchema = z.object({
   token: z.string().min(32).max(256),
 });

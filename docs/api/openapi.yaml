@@ -54,6 +54,23 @@ paths:
             text/html:
               schema:
                 type: string
+  /v1/auth/resend-verification:
+    post:
+      summary: Повторно отправить письмо подтверждения email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendVerificationRequest"
+      responses:
+        "202":
+          description: Если учетная запись существует и еще не подтверждена, письмо поставлено на отправку.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationResponse"
   /v1/auth/login:
     post:
       summary: Войти по email и паролю, выпустить JWT пару.
@@ -123,6 +140,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/OAuthAuthorizeResponse"
   /v1/workspaces:
+    get:
+      summary: Получить workspace текущего пользователя.
+      responses:
+        "200":
+          description: Workspace, где текущий пользователь является участником.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceListResponse"
     post:
       summary: Создать личный или корпоративный workspace.
       requestBody:
@@ -406,6 +432,13 @@ components:
         email:
           type: string
           format: email
+    ResendVerificationRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
     RefreshRequest:
       type: object
       required: [refreshToken]
@@ -586,6 +619,14 @@ components:
         updatedAt:
           type: string
           format: date-time
+    WorkspaceListResponse:
+      type: object
+      required: [workspaces]
+      properties:
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
     Project:
       type: object
       required: [id, workspaceId, key, name, status, leadUserId, sprints, createdAt, updatedAt]

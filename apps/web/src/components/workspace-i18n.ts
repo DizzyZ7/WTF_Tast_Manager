@@ -44,6 +44,15 @@ export const copyByLocale = {
       issues: "Задачи",
       sprints: "Спринты",
     },
+    workspace: {
+      personal: "Личный workspace",
+      corporate: "Корпоративный workspace",
+      switcherTitle: "Мои workspace",
+      internalNumber: "Внутренний номер",
+      copyInternalNumber: "Скопировать внутренний номер",
+      copied: (internalNumber: string): string => `${internalNumber} скопирован`,
+      copyFailed: "Не удалось скопировать внутренний номер",
+    },
     signIn: {
       subtitle: "Войдите или зарегистрируйтесь",
       loginTab: "Вход",
@@ -54,10 +63,13 @@ export const copyByLocale = {
       useDemo: "Подставить user@example.com",
       loginSubmit: "Войти",
       registerSubmit: "Зарегистрироваться",
+      resendVerification: "Отправить письмо еще раз",
       emailRequired: "Нужен рабочий email",
       passwordRequired: "Пароль должен быть не короче 8 символов",
       verificationSent: (email: string): string =>
         `Письмо отправлено на ${email}. Нажмите кнопку подтверждения в письме, затем войдите с паролем.`,
+      verificationResent: (email: string): string =>
+        `Если ${email} еще ожидает подтверждения, новое письмо отправлено.`,
     },
     members: {
       title: "Участники",
@@ -89,7 +101,19 @@ export const copyByLocale = {
       title: "Задачи",
       loading: "Загружаю задачи",
       count: (count: number): string => `${count} ${pluralRu(count, "задача", "задачи", "задач")}`,
+      filteredCount: (visible: number, total: number): string =>
+        `${visible} из ${total} ${pluralRu(total, "задачи", "задач", "задач")}`,
       empty: "Задач пока нет",
+      noMatches: "Ничего не найдено",
+      searchLabel: "Поиск задач",
+      searchPlaceholder: "Поиск по ключу, названию, описанию",
+      clearFilters: "Сбросить",
+      filters: {
+        all: "Все",
+        open: "Открытые",
+        closed: "Закрытые",
+        urgent: "Срочные",
+      },
       list: "Список",
       board: "Доска",
       newIssue: "Новая задача",
@@ -99,6 +123,7 @@ export const copyByLocale = {
       cancel: "Отмена",
       create: "Создать",
       retry: "Повторить",
+      dismissError: "Закрыть ошибку",
       movedBy: (actor: string): string => `Перенес: ${actor}`,
       closedBy: (actor: string): string => `Закрыл: ${actor}`,
       titleTooShort: "Название задачи должно быть не короче 3 символов",
@@ -193,6 +218,22 @@ export const copyByLocale = {
       member: "member",
       viewer: "viewer",
     } satisfies Record<WtfWorkspaceRole, string>,
+    errors: {
+      unexpected: "Что-то пошло не так. Повторите действие.",
+      byCode: {
+        network_timeout: "API не ответил за 15 секунд. Проверьте соединение и повторите.",
+        network_error: "API недоступен. Проверьте, что сервер запущен.",
+        invalid_credentials: "Email или пароль неверны.",
+        email_not_verified:
+          "Email еще не подтвержден. Откройте письмо и подтвердите учетную запись.",
+        email_already_registered: "Этот email уже зарегистрирован. Войдите с паролем.",
+        validation_error: "Проверьте заполненные поля.",
+        workspace_internal_number_not_found: "Workspace с таким внутренним номером не найден.",
+        workspace_owner_required: "Это действие доступно только владельцу workspace.",
+        member_email_not_verified: "Участник должен зарегистрироваться и подтвердить email.",
+        join_request_already_decided: "Эта заявка уже обработана.",
+      } satisfies Record<string, string>,
+    },
   },
   en: {
     appName: "WTF",
@@ -218,6 +259,15 @@ export const copyByLocale = {
       issues: "Issues",
       sprints: "Sprints",
     },
+    workspace: {
+      personal: "Personal workspace",
+      corporate: "Corporate workspace",
+      switcherTitle: "My workspaces",
+      internalNumber: "Internal number",
+      copyInternalNumber: "Copy internal number",
+      copied: (internalNumber: string): string => `${internalNumber} copied`,
+      copyFailed: "Could not copy internal number",
+    },
     signIn: {
       subtitle: "Sign in or register",
       loginTab: "Sign in",
@@ -228,10 +278,13 @@ export const copyByLocale = {
       useDemo: "Use user@example.com",
       loginSubmit: "Sign in",
       registerSubmit: "Register",
+      resendVerification: "Send email again",
       emailRequired: "Work email is required",
       passwordRequired: "Password must contain at least 8 characters",
       verificationSent: (email: string): string =>
         `Email sent to ${email}. Click the confirmation button in the email, then sign in with your password.`,
+      verificationResent: (email: string): string =>
+        `If ${email} is still waiting for verification, a new email has been sent.`,
     },
     members: {
       title: "Members",
@@ -263,7 +316,19 @@ export const copyByLocale = {
       title: "Issues",
       loading: "Loading work items",
       count: (count: number): string => `${count} work items`,
+      filteredCount: (visible: number, total: number): string =>
+        `${visible} of ${total} work items`,
       empty: "No issues yet",
+      noMatches: "No matching issues",
+      searchLabel: "Search issues",
+      searchPlaceholder: "Search key, title, description",
+      clearFilters: "Clear",
+      filters: {
+        all: "All",
+        open: "Open",
+        closed: "Closed",
+        urgent: "Urgent",
+      },
       list: "List",
       board: "Board",
       newIssue: "New issue",
@@ -273,6 +338,7 @@ export const copyByLocale = {
       cancel: "Cancel",
       create: "Create",
       retry: "Retry",
+      dismissError: "Dismiss error",
       movedBy: (actor: string): string => `Moved by ${actor}`,
       closedBy: (actor: string): string => `Closed by ${actor}`,
       titleTooShort: "Issue title must contain at least 3 characters",
@@ -369,6 +435,22 @@ export const copyByLocale = {
       member: "member",
       viewer: "viewer",
     } satisfies Record<WtfWorkspaceRole, string>,
+    errors: {
+      unexpected: "Something went wrong. Try again.",
+      byCode: {
+        network_timeout:
+          "The API did not respond within 15 seconds. Check the connection and retry.",
+        network_error: "The API is unavailable. Check that the server is running.",
+        invalid_credentials: "Email or password is incorrect.",
+        email_not_verified: "Email is not verified yet. Open the email and confirm your account.",
+        email_already_registered: "This email is already registered. Sign in with your password.",
+        validation_error: "Check the fields and try again.",
+        workspace_internal_number_not_found: "No workspace was found for this internal number.",
+        workspace_owner_required: "Only the workspace owner can do this.",
+        member_email_not_verified: "The member must register and verify email first.",
+        join_request_already_decided: "This request has already been processed.",
+      } satisfies Record<string, string>,
+    },
   },
 } as const;
 
